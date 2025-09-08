@@ -37,13 +37,15 @@ export async function GET(req: Request) {
   const name = filenameSafe(deck.title || "deck");
 
   if (fmt === "xlsx" || fmt === "excel") {
-    const XLSXmod = (await import("xlsx")) as unknown as { default?: any; utils: any; write: any };
-    const XLSX = (XLSXmod as any).default ?? XLSXmod;
-    const aoa = [["question", "answer"], ...deck.cards.map((c) => [c.question, c.answer])];
-    const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.aoa_to_sheet(aoa);
-    XLSX.utils.book_append_sheet(wb, ws, "Cards");
-    const buf: ArrayBuffer = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+    // Strictly typed dynamic import of xlsx
+    type XlsxModule = typeof import("xlsx");
+    const { utils, write } = (await import("xlsx")) as XlsxModule;
+
+    const aoa: (string[])[] = [["question", "answer"], ...deck.cards.map((c) => [c.question, c.answer])];
+    const wb = utils.book_new();
+    const ws = utils.aoa_to_sheet(aoa);
+    utils.book_append_sheet(wb, ws, "Cards");
+    const buf: ArrayBuffer = write(wb, { bookType: "xlsx", type: "array" });
 
     return new Response(Buffer.from(buf), {
       headers: {
@@ -65,6 +67,7 @@ export async function GET(req: Request) {
     });
   }
 
+  // CSV with BOM + CRLF for Excel friendliness
   const header = "question,answer";
   const csvLF = [header, ...deck.cards.map((c) => `${csvEscape(c.question)},${csvEscape(c.answer)}`)].join("\n");
   const csvCRLF = csvLF.replace(/\n/g, "\r\n");
