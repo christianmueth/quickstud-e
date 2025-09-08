@@ -1,0 +1,37 @@
+{
+  "name": "studye",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+	"dev": "next dev -p 3000",
+    "build": "prisma migrate deploy && next build",
+    "start": "next start",
+    "postinstall": "prisma generate"
+  },
+  "dependencies": {
+    "@clerk/nextjs": "^6.31.9",
+    "@prisma/client": "^6.15.0",
+    "fast-xml-parser": "^5.2.5",
+    "jszip": "^3.10.1",
+    "next": "15.5.2",
+    "parse": "^6.1.1",
+    "pdf": "^0.1.0",
+    "pdf-parse": "^1.1.1",
+    "prisma": "^6.15.0",
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3",
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "15.5.2",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+  
+}
