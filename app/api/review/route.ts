@@ -1,14 +1,19 @@
 import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/db";
+import type { Card, Deck, User } from "@prisma/client";
 
 export const runtime = "nodejs";
 
-// grade: 0=Again, 1=Hard, 2=Good, 3=Easy
-function updateSm2(card: any, grade: number) {
-  const now = new Date();
-  let { ease, interval, repetitions } = card as { ease: number; interval: number; repetitions: number };
+type Sm2Updatable = Pick<Card, "ease" | "interval" | "repetitions">;
+type Sm2Result = Pick<Card, "ease" | "interval" | "repetitions" | "dueAt" | "lastReviewedAt">;
 
-  if (grade < 2) {
+function updateSm2(card: Sm2Updatable, grade: number): Sm2Result {
+  const now = new Date();
+  let { ease, interval, repetitions } = card;
+
+  const clamped = Math.max(0, Math.min(3, grade));
+
+  if (clamped < 2) {
     repetitions = 0;
     interval = 1;
     ease = Math.max(1.3, ease - 0.2);
@@ -17,8 +22,8 @@ function updateSm2(card: any, grade: number) {
     if (repetitions === 1) interval = 1;
     else if (repetitions === 2) interval = 6;
     else interval = Math.round(interval * ease);
-    // ease adjustment
-    const diff = 3 - grade;                 // 0 for Easy, 1 for Good, 2 for Hard
+
+    const diff = 3 - clamped;
     ease = ease + 0.1 - diff * (0.08 + diff * 0.02);
     ease = Math.max(1.3, parseFloat(ease.toFixed(2)));
   }
@@ -27,18 +32,23 @@ function updateSm2(card: any, grade: number) {
   return { ease, interval, repetitions, dueAt, lastReviewedAt: now };
 }
 
+type CardWithDeckUser = Card & { deck: Deck & { user: User } };
+
 export async function POST(req: Request) {
   const { userId } = await auth();
   if (!userId) return new Response("Unauthorized", { status: 401 });
-  const { cardId, grade } = await req.json();
 
-  const card = await prisma.card.findUnique({
+  const { cardId, grade } = (await req.json().catch(() => ({}))) as { cardId?: string; grade?: number };
+  if (!cardId) return new Response("Bad Request", { status: 400 });
+
+  const card = (await prisma.card.findUnique({
     where: { id: cardId },
     include: { deck: { include: { user: true } } },
-  });
+  })) as CardWithDeckUser | null;
+
   if (!card || card.deck.user.clerkUserId !== userId) return new Response("Not found", { status: 404 });
 
-  const updates = updateSm2(card, Math.max(0, Math.min(3, Number(grade))));
+  const updates = updateSm2(card, Number.isFinite(grade) ? (grade as number) : 0);
   await prisma.card.update({ where: { id: card.id }, data: updates });
   return new Response(null, { status: 204 });
 }
