@@ -1,28 +1,28 @@
 // app/api/deck/[id]/route.ts
 import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/db";
-
 export const runtime = "nodejs";
 
-export async function DELETE(_req: Request, { params }: { params: { id: string } }) {
-  const { userId: clerkId } = await auth();
-  if (!clerkId) return new Response("Unauthorized", { status: 401 });
+function getDeckIdFromUrl(req: Request): string | null {
+  const parts = new URL(req.url).pathname.split("/").filter(Boolean);
+  const i = parts.findIndex((p) => p === "deck");
+  return i >= 0 && i + 1 < parts.length ? parts[i + 1] : null;
+}
 
-  const user = await prisma.user.findUnique({
-    where: { clerkUserId: clerkId },
-    select: { id: true },
-  });
-  if (!user) return new Response("Unauthorized", { status: 401 });
+export async function DELETE(req: Request) {
+  const { userId } = await auth();
+  if (!userId) return new Response("Unauthorized", { status: 401 });
+
+  const id = getDeckIdFromUrl(req);
+  if (!id) return new Response("Bad Request", { status: 400 });
 
   const deck = await prisma.deck.findUnique({
-    where: { id: params.id },
-    select: { id: true, userId: true },
+    where: { id },
+    include: { user: true },
   });
-  if (!deck || deck.userId !== user.id) return new Response("Not found", { status: 404 });
+  if (!deck || deck.user.clerkUserId !== userId) return new Response("Not found", { status: 404 });
 
-  // Cascade delete
-  await prisma.card.deleteMany({ where: { deckId: deck.id } });
-  await prisma.deck.delete({ where: { id: deck.id } });
-
+  await prisma.card.deleteMany({ where: { deckId: id } });
+  await prisma.deck.delete({ where: { id } });
   return new Response(null, { status: 204 });
 }
