@@ -5,25 +5,26 @@ import type { Card, Deck, User } from "@prisma/client";
 
 export const runtime = "nodejs";
 
-type RouteContext = { params: Record<string, string | string[]> };
-
 type CardWithDeckUser = Card & { deck: Deck & { user: User } };
 
-export async function PATCH(req: Request, context: RouteContext) {
+function getCardIdFromUrl(req: Request): string | null {
+  const parts = new URL(req.url).pathname.split("/").filter(Boolean);
+  // .../api/card/:id
+  const i = parts.findIndex((p) => p === "card");
+  return i >= 0 && i + 1 < parts.length ? parts[i + 1] : null;
+}
+
+export async function PATCH(req: Request) {
   const { userId } = await auth();
   if (!userId) return new Response("Unauthorized", { status: 401 });
 
-  // Get id as a single string even if framework passes an array
-  const rawId = context.params["id"];
-  const id = Array.isArray(rawId) ? rawId[0] : rawId;
+  const id = getCardIdFromUrl(req);
   if (!id) return new Response("Bad Request", { status: 400 });
 
-  // Parse body safely
   const body = (await req.json().catch(() => ({}))) as Partial<{
     question: string;
     answer: string;
   }>;
-
   const question = typeof body.question === "string" ? body.question.slice(0, 500) : undefined;
   const answer = typeof body.answer === "string" ? body.answer.slice(0, 2000) : undefined;
 
