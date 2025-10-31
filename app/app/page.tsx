@@ -7,16 +7,57 @@ import DeckCarousel from "@/components/DeckCarousel";
 import DeleteAllDecksButton from "@/components/DeleteAllDecksButton";
 
 export default async function AppPage() {
-  const { userId } = await auth();
+  let userId: string | null = null;
+  
+  try {
+    const authResult = await auth();
+    userId = authResult.userId;
+  } catch (error) {
+    console.error("[App] Auth error:", error);
+    return (
+      <div className="max-w-2xl mx-auto p-6">
+        <div className="border border-red-300 bg-red-50 p-4 rounded">
+          <h2 className="font-semibold text-red-900">Authentication Error</h2>
+          <p className="text-sm text-red-700 mt-2">
+            Unable to authenticate. Please check that Clerk environment variables are configured.
+          </p>
+        </div>
+      </div>
+    );
+  }
+  
   if (!userId) redirect("/sign-in");
 
-  await prisma.user.upsert({ where: { clerkUserId: userId }, update: {}, create: { clerkUserId: userId } });
+  try {
+    await prisma.user.upsert({ 
+      where: { clerkUserId: userId }, 
+      update: {}, 
+      create: { clerkUserId: userId } 
+    });
+  } catch (error) {
+    console.error("[App] Database error creating user:", error);
+    return (
+      <div className="max-w-2xl mx-auto p-6">
+        <div className="border border-red-300 bg-red-50 p-4 rounded">
+          <h2 className="font-semibold text-red-900">Database Connection Error</h2>
+          <p className="text-sm text-red-700 mt-2">
+            Unable to connect to database. Please check that POSTGRES_PRISMA_URL is configured.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
-  const decks = await prisma.deck.findMany({
-    where: { user: { clerkUserId: userId } },
-    orderBy: { createdAt: "desc" },
-    select: { id: true, title: true, createdAt: true, _count: { select: { cards: true } } },
-  });
+  let decks = [];
+  try {
+    decks = await prisma.deck.findMany({
+      where: { user: { clerkUserId: userId } },
+      orderBy: { createdAt: "desc" },
+      select: { id: true, title: true, createdAt: true, _count: { select: { cards: true } } },
+    });
+  } catch (error) {
+    console.error("[App] Error fetching decks:", error);
+  }
 
   return (
     <div className="max-w-6xl mx-auto p-6 space-y-8">
