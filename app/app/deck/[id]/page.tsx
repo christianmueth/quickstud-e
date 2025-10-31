@@ -1,108 +1,50 @@
+import { notFound } from "next/navigation";
+import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/db";
-import Link from "next/link";
-import FlashcardViewer from "@/components/FlashcardViewer";
-import StudyMode from "@/components/StudyMode";
-import DeleteDeckButton from "@/components/DeleteDeckButton";
-import EditCardModal from "@/components/EditCardModal";
 
-export const runtime = "nodejs";
+import DeleteDeckButton from "@/components/DeleteDeckButton";
+import DeckTitleInline from "@/components/DeckTitleInline";
+import AddCardForm from "@/components/AddCardForm";
+import StudyCarousel from "@/components/StudyCarousel";
+import ExportButtons from "@/components/ExportButtons";
+import RegenerateDeckButton from "@/components/RegenerateDeckButton";
+import DeckCardList from "@/components/DeckCardList";
+
 export const dynamic = "force-dynamic";
 
-export default async function DeckPage({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
-  const { id } = await params;
+export default async function DeckPage({ params }: { params: Promise<{ id: string }> }) {
+  const { userId } = await auth();
+  if (!userId) return notFound();
 
-  const deck = await prisma.deck.findUnique({
-    where: { id },
-    include: {
-      cards: {
-        orderBy: { createdAt: "asc" },
-        select: { id: true, question: true, answer: true, dueAt: true },
-      },
-    },
+  const { id } = await params; // Next 15: await params
+
+  const deck = await prisma.deck.findFirst({
+    where: { id, user: { clerkUserId: userId } },
+    include: { cards: { orderBy: { createdAt: "asc" }, select: { id: true, question: true, answer: true } } },
   });
-
-  if (!deck) {
-    return (
-      <main className="mx-auto max-w-3xl p-6 space-y-4">
-        <h2 className="text-2xl font-semibold">Deck not found</h2>
-        <p className="text-gray-600">
-          ID: <code className="px-1.5 py-0.5 bg-gray-100 rounded">{id}</code>
-        </p>
-        <Link href="/app" className="underline">
-          ← Back to decks
-        </Link>
-      </main>
-    );
-  }
-
-  // Prepare typed props for client components (Dates → ISO strings)
-  const browseCards = deck.cards.map((c) => ({
-    id: c.id,
-    question: c.question,
-    answer: c.answer,
-  }));
-  const studyCards = deck.cards.map((c) => ({
-    id: c.id,
-    question: c.question,
-    answer: c.answer,
-    dueAt: c.dueAt.toISOString(),
-  }));
+  if (!deck) return notFound();
 
   return (
-    <main className="mx-auto max-w-3xl p-6 space-y-6">
+    <div className="max-w-3xl mx-auto p-6 space-y-8">
       <div className="flex items-center justify-between gap-3">
-        <div>
-          <h2 className="text-2xl font-semibold">{deck.title}</h2>
-          <p className="text-sm text-gray-500">Cards: {deck.cards.length}</p>
-        </div>
+        <DeckTitleInline deckId={deck.id} initial={deck.title} />
         <div className="flex items-center gap-2">
-          <a className="px-3 py-1.5 rounded border" href={`/api/deck/${deck.id}/export?fmt=xlsx`}>
-            Export Excel
-          </a>
-          <a className="px-3 py-1.5 rounded border" href={`/api/deck/${deck.id}/export?fmt=csv`}>
-            Export CSV
-          </a>
-          <a className="px-3 py-1.5 rounded border" href={`/api/deck/${deck.id}/export?fmt=anki`}>
-            Export Anki
-          </a>
+          <ExportButtons deckId={deck.id} />
+          <RegenerateDeckButton deckId={deck.id} />
           <DeleteDeckButton deckId={deck.id} />
         </div>
       </div>
 
-      <section className="space-y-2">
-        <h3 className="text-lg font-medium">Study</h3>
-        <StudyMode cards={studyCards} />
-      </section>
-
-      <section className="space-y-2">
-        <h3 className="text-lg font-medium">Browse</h3>
-        <FlashcardViewer cards={browseCards} />
+      <section className="space-y-3">
+        <h2 className="text-lg font-semibold">Study</h2>
+        <StudyCarousel deckId={deck.id} />
       </section>
 
       <section className="space-y-3">
-        <h3 className="text-lg font-medium">All cards</h3>
-        {deck.cards.map((c) => (
-          <div key={c.id} className="border rounded p-3">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="font-medium">Q: {c.question}</p>
-                <p className="text-gray-700">A: {c.answer}</p>
-              </div>
-              <EditCardModal card={{ id: c.id, question: c.question, answer: c.answer }} />
-            </div>
-          </div>
-        ))}
+        <h2 className="text-lg font-semibold">Manage cards</h2>
+        <AddCardForm deckId={deck.id} />
+        <DeckCardList cards={deck.cards} />
       </section>
-
-      <div>
-        <Link href="/app" className="underline">
-          ← Back to decks
-        </Link>
-      </div>
-    </main>
+    </div>
   );
 }

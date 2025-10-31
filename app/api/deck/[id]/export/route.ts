@@ -1,81 +1,45 @@
-// app/api/deck/[id]/export/route.ts
+import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/db";
 
-export const runtime = "nodejs";
-
-function getDeckIdFromUrl(req: Request): string | null {
-  const parts = new URL(req.url).pathname.split("/").filter(Boolean);
-  // .../api/deck/:id/export
-  const i = parts.findIndex((p) => p === "deck");
-  return i >= 0 && i + 1 < parts.length ? parts[i + 1] : null;
-}
-
 function csvEscape(s: string) {
-  if (s.includes('"') || s.includes(",") || s.includes("\n")) return `"${s.replace(/"/g, '""')}"`;
-  return s;
-}
-function filenameSafe(s: string) {
-  return s.replace(/[^\w\s-]/g, "").replace(/\s+/g, "_").slice(0, 60);
+  const needs = s.includes('"') || s.includes(",") || s.includes("\n") || s.includes("\r");
+  const out = s.replace(/"/g, '""');
+  return needs ? `"${out}"` : out;
 }
 
-export async function GET(req: Request) {
+export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { userId } = await auth();
-  if (!userId) return new Response("Unauthorized", { status: 401 });
+  if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const id = getDeckIdFromUrl(req);
-  if (!id) return new Response("Bad Request", { status: 400 });
+  const { id } = await ctx.params;
 
-  const deck = await prisma.deck.findUnique({
-    where: { id },
-    include: { cards: { orderBy: { createdAt: "asc" } }, user: true },
+  const deck = await prisma.deck.findFirst({
+    where: { id, user: { clerkUserId: userId } },
+    include: { cards: { orderBy: { createdAt: "asc" }, select: { question: true, answer: true } } },
   });
-  if (!deck || deck.user.clerkUserId !== userId) return new Response("Not found", { status: 404 });
+  if (!deck) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const url = new URL(req.url);
-  const fmt = (url.searchParams.get("fmt") || "csv").toLowerCase();
-  const name = filenameSafe(deck.title || "deck");
+  const url = new URL(_req.url);
+  const fmt = (url.searchParams.get("fmt") || "csv").toLowerCase(); // csv | tsv | anki-tsv
 
-  if (fmt === "xlsx" || fmt === "excel") {
-    // Strictly typed dynamic import of xlsx
-    type XlsxModule = typeof import("xlsx");
-    const { utils, write } = (await import("xlsx")) as XlsxModule;
+  let content = "";
+  let filename = `${deck.title || "deck"}.${fmt === "csv" ? "csv" : "tsv"}`.replace(/\s+/g, "_");
 
-    const aoa: (string[])[] = [["question", "answer"], ...deck.cards.map((c) => [c.question, c.answer])];
-    const wb = utils.book_new();
-    const ws = utils.aoa_to_sheet(aoa);
-    utils.book_append_sheet(wb, ws, "Cards");
-    const buf: ArrayBuffer = write(wb, { bookType: "xlsx", type: "array" });
-
-    return new Response(Buffer.from(buf), {
-      headers: {
-        "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        "Content-Disposition": `attachment; filename="${name}.xlsx"`,
-        "Cache-Control": "no-store",
-      },
-    });
+  if (fmt === "csv") {
+    content = ["Question,Answer", ...deck.cards.map(c => `${csvEscape(c.question)},${csvEscape(c.answer)}`)].join("\r\n");
+  } else {
+    // tsv & anki-tsv (both are tab-separated, Anki can import TSV)
+    const sep = "\t";
+    content = ["Question\tAnswer", ...deck.cards.map(c => [c.question, c.answer].join(sep))].join("\n");
+    filename = `${deck.title || "deck"}.${fmt === "tsv" ? "tsv" : "tsv"}`.replace(/\s+/g, "_");
   }
 
-  if (fmt === "tsv" || fmt === "anki") {
-    const tsv = ["question\tanswer", ...deck.cards.map((c) => `${c.question}\t${c.answer}`)].join("\r\n");
-    return new Response(tsv, {
-      headers: {
-        "Content-Type": "text/tab-separated-values; charset=utf-8",
-        "Content-Disposition": `attachment; filename="${name}.tsv"`,
-        "Cache-Control": "no-store",
-      },
-    });
-  }
-
-  // CSV with BOM + CRLF for Excel friendliness
-  const header = "question,answer";
-  const csvLF = [header, ...deck.cards.map((c) => `${csvEscape(c.question)},${csvEscape(c.answer)}`)].join("\n");
-  const csvCRLF = csvLF.replace(/\n/g, "\r\n");
-  const bom = "\uFEFF";
-  return new Response(bom + csvCRLF, {
+  return new NextResponse(content, {
+    status: 200,
     headers: {
-      "Content-Type": "text/csv; charset=utf-8",
-      "Content-Disposition": `attachment; filename="${name}.csv"`,
+      "Content-Type": fmt === "csv" ? "text/csv; charset=utf-8" : "text/tab-separated-values; charset=utf-8",
+      "Content-Disposition": `attachment; filename="${filename}"`,
       "Cache-Control": "no-store",
     },
   });

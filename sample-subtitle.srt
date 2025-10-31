@@ -1,0 +1,75 @@
+1
+00:00:00,000 --> 00:00:03,500
+Welcome to this introduction to quantum computing.
+
+2
+00:00:03,500 --> 00:00:07,200
+Quantum computers use principles of quantum mechanics
+
+3
+00:00:07,200 --> 00:00:10,800
+to process information in fundamentally different ways than classical computers.
+
+4
+00:00:11,000 --> 00:00:15,300
+The basic unit of quantum information is called a qubit.
+
+5
+00:00:15,500 --> 00:00:19,200
+Unlike classical bits which can only be zero or one,
+
+6
+00:00:19,200 --> 00:00:23,800
+qubits can exist in a superposition of both states simultaneously.
+
+7
+00:00:24,000 --> 00:00:28,500
+This property allows quantum computers to perform certain calculations
+
+8
+00:00:28,500 --> 00:00:32,100
+exponentially faster than classical computers.
+
+9
+00:00:32,300 --> 00:00:36,800
+Another key principle is quantum entanglement,
+
+10
+00:00:37,000 --> 00:00:41,500
+where qubits become correlated in ways that have no classical equivalent.
+
+11
+00:00:41,700 --> 00:00:46,200
+Quantum algorithms like Shor's algorithm for factoring large numbers
+
+12
+00:00:46,400 --> 00:00:50,900
+and Grover's algorithm for searching databases demonstrate
+
+13
+00:00:51,100 --> 00:00:55,600
+the potential power of quantum computing.
+
+14
+00:00:55,800 --> 00:01:00,300
+However, quantum computers are extremely sensitive to noise
+
+15
+00:01:00,500 --> 00:01:04,800
+and environmental interference, a problem called decoherence.
+
+16
+00:01:05,000 --> 00:01:09,500
+Building practical quantum computers requires maintaining
+
+17
+00:01:09,700 --> 00:01:14,200
+extremely cold temperatures near absolute zero.
+
+18
+00:01:14,400 --> 00:01:18,900
+Current applications include cryptography, drug discovery,
+
+19
+00:01:19,100 --> 00:01:23,600
+optimization problems, and materials science.

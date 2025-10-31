@@ -2,21 +2,39 @@
 "use client";
 
 import Link from "next/link";
-import { SignedIn, SignedOut, UserButton } from "@clerk/nextjs";
+import { SignedIn, SignedOut, SignInButton, SignUpButton, UserButton } from "@clerk/nextjs";
+import UserStatsPill from "@/components/UserStatsPill"; // remove this line + usage if you don't have the pill yet
 
 export default function NavBar() {
   return (
-    <nav className="flex items-center justify-between p-4 border-b">
-      <Link href="/" className="font-semibold">QuickStud-E</Link>
-      <div>
-        <SignedIn>
-          <UserButton afterSignOutUrl="/" />
-        </SignedIn>
-        <SignedOut>
-          <Link href="/sign-in" className="mr-4 underline">Sign in</Link>
-          <Link href="/sign-up" className="underline">Create account</Link>
-        </SignedOut>
-      </div>
-    </nav>
+    <header className="sticky top-0 z-50 bg-white/90 backdrop-blur border-b">
+      <nav className="mx-auto max-w-6xl px-4 py-3 flex items-center justify-between">
+        <Link href="/" className="font-semibold text-lg">
+          QuickStud-E
+        </Link>
+
+        <div className="flex items-center gap-3">
+          <SignedIn>
+            <Link href="/app" className="text-sm px-3 py-1.5 rounded border hover:bg-gray-50">
+              My Decks
+            </Link>
+          </SignedIn>
+
+          <SignedOut>
+            <SignInButton mode="modal">
+              <button className="text-sm px-3 py-1.5 rounded bg-black text-white">Sign in</button>
+            </SignInButton>
+            <SignUpButton mode="modal">
+              <button className="text-sm px-3 py-1.5 rounded border">Create account</button>
+            </SignUpButton>
+          </SignedOut>
+
+          <SignedIn>
+            <UserStatsPill />
+            <UserButton afterSignOutUrl="/" />
+          </SignedIn>
+        </div>
+      </nav>
+    </header>
   );
 }

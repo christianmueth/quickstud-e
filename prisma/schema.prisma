@@ -1,44 +1,50 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("POSTGRES_PRISMA_URL")
+}
+
 generator client {
   provider = "prisma-client-js"
 }
 
-datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+model User {
+  id            String   @id @default(cuid())
+  clerkUserId   String   @unique
+  xp            Int      @default(0)
+  studyStreak   Int      @default(0)
+  lastStudyDate DateTime?
+  xpToday       Int      @default(0)
+  xpTodayDate   DateTime?
+  dailyGoal     Int      @default(50)
+  decks         Deck[]
 }
 
-model User {
-  id          String   @id @default(cuid())
-  clerkUserId String   @unique
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  decks       Deck[]
-}
 
 model Deck {
   id        String   @id @default(cuid())
-  user      User     @relation(fields: [userId], references: [id])
-  userId    String
   title     String
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   source    String?
+  cards     Card[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  cards     Card[]
 }
 
 model Card {
-  id             String   @id @default(cuid())
-  deck           Deck     @relation(fields: [deckId], references: [id])
-  deckId         String
-  question       String
-  answer         String
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-  // --- Spaced repetition ---
-  ease           Float    @default(2.5)
-  interval       Int      @default(0)       // days
-  repetitions    Int      @default(0)
-  dueAt          DateTime @default(now())
-  lastReviewedAt DateTime?
-  @@index([deckId, dueAt])
+  id        String   @id @default(cuid())
+  deckId    String
+  deck      Deck     @relation(fields: [deckId], references: [id], onDelete: Cascade)
+  question  String
+  answer    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // --- SRS fields ---
+  srsDueAt        DateTime @default(now())
+  srsIntervalDays Int      @default(0)
+  srsEase         Float    @default(2.5)
+  srsReps         Int      @default(0)
+  srsLapses       Int      @default(0)
+  lastReviewedAt  DateTime?
 }

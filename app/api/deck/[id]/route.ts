@@ -1,28 +1,36 @@
-// app/api/deck/[id]/route.ts
+import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/db";
-export const runtime = "nodejs";
 
-function getDeckIdFromUrl(req: Request): string | null {
-  const parts = new URL(req.url).pathname.split("/").filter(Boolean);
-  const i = parts.findIndex((p) => p === "deck");
-  return i >= 0 && i + 1 < parts.length ? parts[i + 1] : null;
+export async function PATCH(req: Request, { params }: { params: { id: string } }) {
+  const { userId } = await auth();
+  if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const { title } = (await req.json().catch(() => ({}))) as { title?: string };
+  const t = (title || "").trim().slice(0, 120);
+  if (!t) return NextResponse.json({ error: "Title required" }, { status: 400 });
+
+  const deck = await prisma.deck.findFirst({
+    where: { id: params.id, user: { clerkUserId: userId } },
+    select: { id: true },
+  });
+  if (!deck) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  await prisma.deck.update({ where: { id: params.id }, data: { title: t } });
+  return NextResponse.json({ ok: true });
 }
 
-export async function DELETE(req: Request) {
+export async function DELETE(_req: Request, { params }: { params: { id: string } }) {
   const { userId } = await auth();
-  if (!userId) return new Response("Unauthorized", { status: 401 });
+  if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const id = getDeckIdFromUrl(req);
-  if (!id) return new Response("Bad Request", { status: 400 });
-
-  const deck = await prisma.deck.findUnique({
-    where: { id },
-    include: { user: true },
+  const deck = await prisma.deck.findFirst({
+    where: { id: params.id, user: { clerkUserId: userId } },
+    select: { id: true },
   });
-  if (!deck || deck.user.clerkUserId !== userId) return new Response("Not found", { status: 404 });
+  if (!deck) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  await prisma.card.deleteMany({ where: { deckId: id } });
-  await prisma.deck.delete({ where: { id } });
-  return new Response(null, { status: 204 });
+  await prisma.card.deleteMany({ where: { deckId: params.id } });
+  await prisma.deck.delete({ where: { id: params.id } });
+  return NextResponse.json({ ok: true });
 }

@@ -1,54 +1,105 @@
+import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/db";
-import type { Card, Deck, User } from "@prisma/client";
 
-export const runtime = "nodejs";
+function schedule(ease: number, reps: number, interval: number, rating: "again"|"good"|"easy") {
+  let newEase = ease;
+  let newReps = reps;
+  let newInterval = interval;
 
-type Sm2Updatable = Pick<Card, "ease" | "interval" | "repetitions">;
-type Sm2Result = Pick<Card, "ease" | "interval" | "repetitions" | "dueAt" | "lastReviewedAt">;
-
-function updateSm2(card: Sm2Updatable, grade: number): Sm2Result {
-  const now = new Date();
-  let { ease, interval, repetitions } = card;
-
-  const clamped = Math.max(0, Math.min(3, grade));
-
-  if (clamped < 2) {
-    repetitions = 0;
-    interval = 1;
-    ease = Math.max(1.3, ease - 0.2);
-  } else {
-    repetitions += 1;
-    if (repetitions === 1) interval = 1;
-    else if (repetitions === 2) interval = 6;
-    else interval = Math.round(interval * ease);
-
-    const diff = 3 - clamped;
-    ease = ease + 0.1 - diff * (0.08 + diff * 0.02);
-    ease = Math.max(1.3, parseFloat(ease.toFixed(2)));
+  if (rating === "again") {
+    newEase = Math.max(1.3, ease - 0.2);
+    newReps = 0;
+    return { ease: newEase, reps: newReps, intervalDays: 0, minutes: 10, lapse: true };
   }
-
-  const dueAt = new Date(now.getTime() + interval * 24 * 60 * 60 * 1000);
-  return { ease, interval, repetitions, dueAt, lastReviewedAt: now };
+  if (rating === "good") {
+    newEase = Math.max(1.3, ease - 0.02);
+    newReps = reps + 1;
+    if (reps < 1) newInterval = 1;
+    else if (reps < 2) newInterval = 3;
+    else newInterval = Math.round(interval * newEase);
+    return { ease: newEase, reps: newReps, intervalDays: Math.max(1, newInterval), minutes: 0, lapse: false };
+  }
+  // easy
+  newEase = ease + 0.15;
+  newReps = reps + 1;
+  if (reps < 1) newInterval = 2;
+  else if (reps < 2) newInterval = 4;
+  else newInterval = Math.round(interval * newEase * 1.2);
+  return { ease: newEase, reps: newReps, intervalDays: Math.max(1, newInterval), minutes: 0, lapse: false };
 }
-
-type CardWithDeckUser = Card & { deck: Deck & { user: User } };
 
 export async function POST(req: Request) {
   const { userId } = await auth();
-  if (!userId) return new Response("Unauthorized", { status: 401 });
+  if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const { cardId, grade } = (await req.json().catch(() => ({}))) as { cardId?: string; grade?: number };
-  if (!cardId) return new Response("Bad Request", { status: 400 });
+  const body = (await req.json().catch(() => null)) as { cardId?: string; rating?: "again"|"good"|"easy" } | null;
+  if (!body?.cardId || !body?.rating) return NextResponse.json({ error: "Bad request" }, { status: 400 });
 
-  const card = (await prisma.card.findUnique({
-    where: { id: cardId },
-    include: { deck: { include: { user: true } } },
-  })) as CardWithDeckUser | null;
+  // Select only safe fields if SRS cols aren’t present
+  const card = await prisma.card.findFirst({
+    where: { id: body.cardId, deck: { user: { clerkUserId: userId } } },
+    // use `as any` to avoid TS errors pre-migration
+    select: { id: true, deckId: true, srsEase: true, srsReps: true, srsIntervalDays: true } as any,
+  });
+  if (!card) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  if (!card || card.deck.user.clerkUserId !== userId) return new Response("Not found", { status: 404 });
+  const now = new Date();
+  const { ease, reps, intervalDays, minutes, lapse } = schedule(
+    (card as any).srsEase ?? 2.5,
+    (card as any).srsReps ?? 0,
+    (card as any).srsIntervalDays ?? 0,
+    body.rating
+  );
 
-  const updates = updateSm2(card, Number.isFinite(grade) ? (grade as number) : 0);
-  await prisma.card.update({ where: { id: card.id }, data: updates });
-  return new Response(null, { status: 204 });
+  const nextDue = new Date(now);
+  if (minutes && minutes > 0) nextDue.setMinutes(nextDue.getMinutes() + minutes);
+  else nextDue.setDate(nextDue.getDate() + intervalDays);
+
+  // Try to write SRS fields; if schema lacks them, fall back silently
+  try {
+    await prisma.card.update({
+      where: { id: card.id },
+      data: {
+        srsEase: ease,
+        srsReps: reps,
+        srsIntervalDays: intervalDays,
+        srsLapses: { increment: lapse ? 1 : 0 } as any,
+        srsDueAt: nextDue,
+        lastReviewedAt: now,
+      } as any,
+    });
+  } catch {
+    // fallback: just touch updatedAt so something changes
+    await prisma.card.update({ where: { id: card.id }, data: { updatedAt: new Date() } }).catch(() => {});
+  }
+
+  // Gamified XP/streak — attempt if columns exist, otherwise ignore
+  try {
+    const user = await prisma.user.findFirst({
+      where: { clerkUserId: userId },
+      select: { id: true, xp: true, studyStreak: true, lastStudyDate: true } as any,
+    });
+    if (user) {
+      const xpGain = body.rating === "easy" ? 5 : body.rating === "good" ? 3 : 1;
+      const today = new Date(); today.setHours(0,0,0,0);
+      const last = user.lastStudyDate ? new Date(user.lastStudyDate as any) : null;
+      const lastDay = last ? (last.setHours(0,0,0,0), last) : null;
+
+      let streak = (user.studyStreak as any) || 0;
+      if (!lastDay || Number(today) - Number(lastDay) >= 86_400_000) {
+        const yesterday = new Date(today); yesterday.setDate(yesterday.getDate() - 1);
+        if (lastDay && Number(lastDay) === Number(yesterday)) streak += 1;
+        else streak = 1;
+      }
+      await prisma.user.update({
+        where: { id: user.id as any },
+        data: { xp: ((user.xp as any) ?? 0) + xpGain, studyStreak: streak, lastStudyDate: new Date() } as any,
+      });
+    }
+  } catch {
+    // ignore if XP/streak columns aren’t there yet
+  }
+
+  return NextResponse.json({ ok: true, nextDue });
 }

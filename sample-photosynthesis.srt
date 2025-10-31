@@ -1,0 +1,84 @@
+1
+00:00:00,000 --> 00:00:04,200
+Photosynthesis is the process by which plants convert light energy into chemical energy.
+
+2
+00:00:04,400 --> 00:00:08,600
+This process occurs primarily in the chloroplasts of plant cells.
+
+3
+00:00:08,800 --> 00:00:13,200
+Chlorophyll, the green pigment in chloroplasts, absorbs light energy.
+
+4
+00:00:13,400 --> 00:00:17,800
+The process can be divided into two main stages: light-dependent reactions
+
+5
+00:00:18,000 --> 00:00:22,400
+and light-independent reactions, also known as the Calvin cycle.
+
+6
+00:00:22,600 --> 00:00:27,000
+During light-dependent reactions, water molecules are split,
+
+7
+00:00:27,200 --> 00:00:31,600
+releasing oxygen as a byproduct and generating ATP and NADPH.
+
+8
+00:00:31,800 --> 00:00:36,200
+These energy carriers are then used in the Calvin cycle
+
+9
+00:00:36,400 --> 00:00:40,800
+to fix carbon dioxide into glucose and other organic compounds.
+
+10
+00:00:41,000 --> 00:00:45,400
+The overall equation for photosynthesis is:
+
+11
+00:00:45,600 --> 00:00:50,000
+six carbon dioxide plus six water plus light energy
+
+12
+00:00:50,200 --> 00:00:54,600
+yields one glucose molecule plus six oxygen molecules.
+
+13
+00:00:54,800 --> 00:00:59,200
+Photosynthesis is crucial for life on Earth as it produces
+
+14
+00:00:59,400 --> 00:01:03,800
+the oxygen we breathe and forms the base of most food chains.
+
+15
+00:01:04,000 --> 00:01:08,400
+Different wavelengths of light are absorbed differently by chlorophyll.
+
+16
+00:01:08,600 --> 00:01:13,000
+Red and blue light are absorbed most efficiently,
+
+17
+00:01:13,200 --> 00:01:17,600
+while green light is reflected, which is why plants appear green.
+
+18
+00:01:17,800 --> 00:01:22,200
+Environmental factors like light intensity, carbon dioxide concentration,
+
+19
+00:01:22,400 --> 00:01:26,800
+and temperature can affect the rate of photosynthesis.
+
+20
+00:01:27,000 --> 00:01:31,400
+Plants have evolved various adaptations to optimize photosynthesis,
+
+21
+00:01:31,600 --> 00:01:36,000
+such as C4 and CAM pathways for plants in hot, dry climates.
+
