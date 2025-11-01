@@ -29,23 +29,22 @@ const nextConfig: NextConfig = {
     
     return config;
   },
-  // Add headers for SharedArrayBuffer (required by WASM models)
+  // Cross-Origin Isolation: disable by default to avoid blocking 3rd-party SDKs (e.g., Clerk)
+  // Enable only when needed by setting ENABLE_CROSS_ORIGIN_ISOLATION=1 at build time
   async headers() {
-    return [
-      {
-        source: '/(.*)',
-        headers: [
-          {
-            key: 'Cross-Origin-Opener-Policy',
-            value: 'same-origin',
-          },
-          {
-            key: 'Cross-Origin-Embedder-Policy',
-            value: 'require-corp',
-          },
-        ],
-      },
-    ];
+    if (process.env.ENABLE_CROSS_ORIGIN_ISOLATION === '1') {
+      return [
+        {
+          source: '/(.*)',
+          headers: [
+            { key: 'Cross-Origin-Opener-Policy', value: 'same-origin' },
+            { key: 'Cross-Origin-Embedder-Policy', value: 'require-corp' },
+          ],
+        },
+      ];
+    }
+    // Default: no special headers
+    return [];
   },
 };
 

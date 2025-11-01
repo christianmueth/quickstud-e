@@ -48,7 +48,7 @@ export default async function AppPage() {
     );
   }
 
-  let decks = [];
+  let decks: Array<{ id: string; title: string; createdAt: Date; _count: { cards: number } } > = [];
   try {
     decks = await prisma.deck.findMany({
       where: { user: { clerkUserId: userId } },
@@ -61,7 +61,7 @@ export default async function AppPage() {
 
   return (
     <div className="max-w-6xl mx-auto p-6 space-y-8">
-      <DeckCarousel />
+      <DeckCarousel userId={userId} />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         <section className="space-y-4">
