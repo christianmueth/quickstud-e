@@ -16,7 +16,21 @@ export const metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <ClerkProvider>
+    <ClerkProvider
+      appearance={{
+        elements: {
+          // Hide footer areas inside auth modals (SignIn/SignUp)
+          footer: "hidden",
+          cardFooter: "hidden",
+          footerAction: "hidden",
+          footerActionText: "hidden",
+          footerActionLink: "hidden",
+          // Attempt to hide Clerk branding badge if allowed by plan
+          poweredBy: "hidden",
+          footerPoweredBy: "hidden",
+        },
+      }}
+    >
       <html lang="en">
         <body className="min-h-screen bg-white text-gray-900">
           <NavBar />{/* toolbar/header lives inside <body> */}
