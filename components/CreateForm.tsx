@@ -14,6 +14,8 @@ export default function CreateForm() {
   const [pdfName, setPdfName] = useState("");
   const [subtitleName, setSubtitleName] = useState("");
   const [videoName, setVideoName] = useState("");
+  const [cardCount, setCardCount] = useState(20); // Default 20 cards
+  const [generationMode, setGenerationMode] = useState<"flashcards" | "notes">("flashcards");
 
   // Refs to clear file inputs programmatically
   const urlRef = useRef<HTMLInputElement>(null);
@@ -55,6 +57,9 @@ export default function CreateForm() {
         if (k === "video" || k === "file" || k === "subtitle") continue;
         fd.append(k, v);
       }
+      
+      // Add card count to form data
+      fd.append("cardCount", String(cardCount));
       
       // Add back only the file input that matches current content type
       if (contentType === "pdf") {
@@ -138,21 +143,36 @@ export default function CreateForm() {
         toast.info("Processing...");
       }
 
-      const res = await fetch("/api/flashcards", { method: "POST", body: fd });
+      // Route to the appropriate API based on mode
+      const apiEndpoint = generationMode === "flashcards" ? "/api/flashcards" : "/api/study-notes";
+      const res = await fetch(apiEndpoint, { method: "POST", body: fd });
       if (!res.ok) {
         let msg = `Failed to generate (HTTP ${res.status})`;
         try { const j = await res.json(); if (j?.error) msg = `${j.error}${j?.code ? ` [${j.code}]` : ""}`; } catch {}
         throw new Error(msg);
       }
 
-      const location = res.headers.get("Location");
-      if (location) {
-        toast.success("Deck created successfully!");
-        // Use router.refresh() to update the page data
-        window.location.href = location;
+      if (generationMode === "notes") {
+        // For study notes, show the result in a new window or redirect to a notes viewer
+        const data = await res.json();
+        if (data.success && data.notes) {
+          // Store notes in sessionStorage and redirect to a viewer page
+          sessionStorage.setItem("latestStudyNotes", JSON.stringify(data));
+          toast.success("Study notes generated!");
+          window.location.href = "/app/study-notes/view";
+        } else {
+          throw new Error("Failed to generate study notes");
+        }
       } else {
-        toast.success("Deck created");
-        window.location.reload(); // Fallback refresh
+        // For flashcards, use the existing redirect logic
+        const location = res.headers.get("Location");
+        if (location) {
+          toast.success("Deck created successfully!");
+          window.location.href = location;
+        } else {
+          toast.success("Deck created");
+          window.location.reload();
+        }
       }
     } catch (err: any) {
       toast.error(err?.message || "Network error");
@@ -163,6 +183,37 @@ export default function CreateForm() {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
+      {/* Generation mode selector */}
+      <div>
+        <label className="text-sm font-medium">What would you like to generate?</label>
+        <div className="mt-2 flex gap-3">
+          <button
+            type="button"
+            onClick={() => setGenerationMode("flashcards")}
+            className={`flex-1 px-4 py-3 rounded border text-sm font-medium transition-colors ${
+              generationMode === "flashcards"
+                ? "bg-black text-white border-black"
+                : "bg-white text-gray-700 border-gray-300 hover:border-gray-400"
+            }`}
+          >
+            📇 Flashcards
+            <p className="text-xs mt-1 opacity-75">Study with spaced repetition</p>
+          </button>
+          <button
+            type="button"
+            onClick={() => setGenerationMode("notes")}
+            className={`flex-1 px-4 py-3 rounded border text-sm font-medium transition-colors ${
+              generationMode === "notes"
+                ? "bg-black text-white border-black"
+                : "bg-white text-gray-700 border-gray-300 hover:border-gray-400"
+            }`}
+          >
+            📝 Study Notes
+            <p className="text-xs mt-1 opacity-75">Overview with critical points</p>
+          </button>
+        </div>
+      </div>
+
       <div>
         <label className="text-sm font-medium">Title <span className="text-red-500">*</span></label>
         <input 
@@ -174,6 +225,27 @@ export default function CreateForm() {
           maxLength={120}
         />
       </div>
+
+      {/* Number of flashcards selector - only show for flashcards mode */}
+      {generationMode === "flashcards" && (
+        <div>
+          <label className="text-sm font-medium">Number of flashcards</label>
+          <select
+            className="mt-1 w-full border rounded p-2 bg-white"
+            value={cardCount}
+            onChange={(e) => setCardCount(Number(e.target.value))}
+          >
+            <option value={10}>10 cards</option>
+            <option value={15}>15 cards</option>
+            <option value={20}>20 cards (recommended)</option>
+            <option value={30}>30 cards</option>
+            <option value={50}>50 cards</option>
+            <option value={75}>75 cards</option>
+            <option value={100}>100 cards (slow)</option>
+          </select>
+          <p className="text-xs text-gray-500 mt-1">More cards = longer generation time and higher cost</p>
+        </div>
+      )}
 
       {/* Content type selector */}
       <div>
@@ -432,7 +504,11 @@ export default function CreateForm() {
       </div>
 
       <button className="px-4 py-2 rounded bg-black text-white disabled:opacity-60" type="submit" disabled={pending}>
-        {pending ? "Preparing…" : "Generate Flashcards"}
+        {pending 
+          ? "Preparing…" 
+          : generationMode === "flashcards" 
+            ? "Generate Flashcards" 
+            : "Generate Study Notes"}
       </button>
     </form>
   );

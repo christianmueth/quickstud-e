@@ -1,0 +1,8 @@
+List of quickstud-e external apps:
+have a clerk application to handle users
+have a squarespace application to manage domains and certain keys
+have a GitHub to hold the codebase open source
+use vercel to handle the production pipeline, putting the website online. There's also a blob connection of some kind which was made, for large processes
+I pay OpenAI for certain things, there's an OpenAI Api key as well.
+I use neon for the SQL database, to store data
+Use google for google Oauth

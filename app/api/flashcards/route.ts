@@ -778,8 +778,12 @@ export async function POST(req: Request) {
     }
     title = title.slice(0, 120);
 
+    // Get card count from form data (default to 20)
+    const cardCount = Number(fd.get("cardCount")) || DEFAULT_CARD_COUNT;
+    console.log(`[Cards] Generating ${cardCount} flashcards for deck: ${title}`);
+
     // Generate cards
-    const aiCards = await generateCardsWithOpenAI(source, DEFAULT_CARD_COUNT);
+    const aiCards = await generateCardsWithOpenAI(source, cardCount);
     const cards = aiCards ?? (() => {
       console.warn("[Cards] ⚠️ USING FALLBACK CARDS - AI generation failed or unavailable");
       return fallbackCards(source).map((c) => ({ question: c.question, answer: c.answer }));
