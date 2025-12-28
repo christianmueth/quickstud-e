@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
+import { callLLM } from "@/lib/aiClient";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,9 +14,9 @@ function cleanText(s: string) { return s.replace(/\s+/g, " ").trim(); }
 function truncate(s: string, max = MAX_SOURCE_CHARS) { return s.length > max ? s.slice(0, max) : s; }
 
 async function generateStudyNotesWithOpenAI(source: string): Promise<string | null> {
-  const apiKey = process.env.OPENAI_API_KEY;
+  const apiKey = process.env.RUNPOD_API_KEY;
   if (!apiKey) {
-    console.error("[StudyNotes] OPENAI_API_KEY missing");
+    console.error("[StudyNotes] RUNPOD_API_KEY missing");
     return null;
   }
   
@@ -39,42 +40,24 @@ Make the notes comprehensive yet concise, suitable for review and exam prep.`;
   const userPrompt = `Create detailed study notes and overview for the following content:\n\n${truncate(source)}`;
 
   try {
-    console.log("[StudyNotes] Calling OpenAI API...");
-    const resp = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: { 
-        Authorization: `Bearer ${apiKey}`, 
-        "Content-Type": "application/json" 
-      },
-      body: JSON.stringify({
-        model: MODEL,
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt }
-        ],
-        temperature: 0.7,
-        max_tokens: 4000,
-      }),
-    });
-
-    if (!resp.ok) {
-      const errorText = await resp.text();
-      console.error("[StudyNotes] OpenAI API error:", resp.status, errorText);
-      return null;
-    }
-
-    const data = await resp.json();
-    const content = data.choices?.[0]?.message?.content?.trim();
+    console.log("[StudyNotes] Calling RunPod API...");
+    
+    const messages = [
+      { role: "system" as const, content: systemPrompt },
+      { role: "user" as const, content: userPrompt }
+    ];
+    
+    const content = await callLLM(messages, 4000);
     
     if (!content) {
-      console.error("[StudyNotes] Empty response from OpenAI");
+      console.error("[StudyNotes] Empty response from RunPod");
       return null;
     }
 
     console.log(`[StudyNotes] Generated ${content.length} characters of notes`);
-    return content;
+    return content.trim();
   } catch (err: any) {
-    console.error("[StudyNotes] OpenAI error:", err.message);
+    console.error("[StudyNotes] RunPod error:", err.message);
     return null;
   }
 }

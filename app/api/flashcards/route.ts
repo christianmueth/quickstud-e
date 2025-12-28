@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/db";
+import { callLLM } from "@/lib/aiClient";
 
 export const runtime = "nodejs";         // node runtime to allow larger bodies locally
 export const dynamic = "force-dynamic";
@@ -393,8 +394,8 @@ Material:
 ${text}`;
 }
 async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUNT) {
-  if (!process.env.OPENAI_API_KEY) {
-    console.warn("[Cards] OpenAI API key not configured, using fallback");
+  if (!process.env.RUNPOD_API_KEY) {
+    console.warn("[Cards] RunPod API key not configured, using fallback");
     return null;
   }
   
@@ -402,56 +403,35 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
   console.log("[Cards] First 200 chars of source:", source.slice(0, 200));
   console.log("[Cards] Requesting", count, "cards with max_tokens:", OPENAI_MAX_OUTPUT_TOKENS);
   
-  const resp = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: MODEL,
-      messages: [
-        { role: "system", content: "You are an expert tutor creating educational flashcards. Return only valid JSON with no additional text." }, 
-        { role: "user", content: buildFlashcardPrompt(source, count) }
-      ],
-      temperature: 0.3,
-      max_tokens: OPENAI_MAX_OUTPUT_TOKENS,
-    }),
-  }).catch((e) => {
-    console.error("[Cards] OpenAI fetch error:", e?.message || e);
-    return e as any;
-  });
+  const messages = [
+    { role: "system" as const, content: "You are an expert tutor creating educational flashcards. Return only valid JSON with no additional text." }, 
+    { role: "user" as const, content: buildFlashcardPrompt(source, count) }
+  ];
   
-  if (!resp || !("ok" in resp) || !resp.ok) {
-    try { 
-      const status = (resp as any)?.status || "unknown";
-      const text = await (resp as any).text().catch(() => "");
-      console.error("[Cards] OpenAI API call failed - Status:", status, "Response:", text.slice(0, 500)); 
-    } catch {}
+  const content = await callLLM(messages, OPENAI_MAX_OUTPUT_TOKENS);
+  
+  if (!content) {
     console.warn("[Cards] Using fallback cards due to API failure");
     return null;
   }
   
-  const data = await (resp as Response).json();
-  const content = stripFence(data?.choices?.[0]?.message?.content || "[]");
-  const finishReason = data?.choices?.[0]?.finish_reason;
-  console.log("[Cards] OpenAI returned", content.length, "chars of response");
-  console.log("[Cards] Finish reason:", finishReason);
-  if (finishReason === "length") {
-    console.warn("[Cards] ⚠️ Response was cut off due to token limit! Consider increasing OPENAI_MAX_OUTPUT_TOKENS");
-  }
+  const cleanedContent = stripFence(content);
+  console.log("[Cards] RunPod returned", cleanedContent.length, "chars of response");
   
   try {
-    const arr = JSON.parse(content) as Array<{ q?: string; a?: string }>;
+    const arr = JSON.parse(cleanedContent) as Array<{ q?: string; a?: string }>;
     const mapped = arr
       .filter((c) => typeof c?.q === "string" && typeof c?.a === "string")
       .map((c) => ({ question: (c.q || "").slice(0, 500), answer: (c.a || "").slice(0, 2000) }));
     if (mapped.length === 0) {
-      console.warn("[Cards] OpenAI returned empty card array, using fallback");
+      console.warn("[Cards] RunPod returned empty card array, using fallback");
       return null;
     }
     console.log("[Cards] Successfully parsed", mapped.length, "AI-generated flashcards");
     return mapped;
   } catch (e) { 
-    console.error("[Cards] Failed to parse OpenAI JSON response:", (e as any)?.message);
-    console.error("[Cards] Invalid response content:", content.slice(0, 500));
+    console.error("[Cards] Failed to parse RunPod JSON response:", (e as any)?.message);
+    console.error("[Cards] Invalid response content:", cleanedContent.slice(0, 500));
     console.warn("[Cards] Using fallback cards due to parse error");
     return null; 
   }
@@ -779,7 +759,7 @@ export async function POST(req: Request) {
     title = title.slice(0, 120);
 
     // Get card count from form data (default to 20)
-    const cardCount = Number(fd.get("cardCount")) || DEFAULT_CARD_COUNT;
+    const cardCount = Number(form.get("cardCount")) || DEFAULT_CARD_COUNT;
     console.log(`[Cards] Generating ${cardCount} flashcards for deck: ${title}`);
 
     // Generate cards
