@@ -4,6 +4,8 @@
  * This replaces OpenAI for text generation while keeping Whisper for audio transcription
  */
 
+import { createHash } from "crypto";
+
 interface Message {
   role: "system" | "user" | "assistant";
   content: string;
@@ -66,6 +68,16 @@ function coerceToString(value: unknown): string | null {
   }
 }
 
+function fingerprintSecret(value: string): string {
+  // Non-reversible fingerprint for debugging env mismatches across deployments.
+  // Safe to log (does not reveal the secret).
+  try {
+    return createHash("sha256").update(value).digest("hex").slice(0, 10);
+  } catch {
+    return "unknown";
+  }
+}
+
 /**
  * Calls the RunPod serverless endpoint with DeepSeek vLLM model
  * @param messages - Array of chat messages in OpenAI format
@@ -90,6 +102,8 @@ export async function callLLM(
   const bearerAuthHeaderValue = rawAuth.toLowerCase().startsWith("bearer ") ? rawAuth : `Bearer ${rawAuth}`;
   const rawAuthHeaderValue = rawAuth.replace(/^bearer\s+/i, "");
 
+  const apiKeyFp = fingerprintSecret(rawAuthHeaderValue);
+
   const { normalizedPathname } = parseEndpoint(endpoint);
   const isAsyncRun = (normalizedPathname ?? endpoint).replace(/\/+$/, "").endsWith("/run");
 
@@ -97,6 +111,7 @@ export async function callLLM(
     console.log(
       `[aiClient] Calling RunPod ${isAsyncRun ? "/run" : "/runsync"} at ${safeEndpointLabel(endpoint)} (model=${model})`
     );
+    console.log(`[aiClient] RunPod key fingerprint: ${apiKeyFp}`);
 
     const body = JSON.stringify({
       input: {
