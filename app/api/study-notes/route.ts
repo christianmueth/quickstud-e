@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
-import { callLLM } from "@/lib/aiClient";
+import { callLLMResult } from "@/lib/aiClient";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -47,12 +47,20 @@ Make the notes comprehensive yet concise, suitable for review and exam prep.`;
       { role: "user" as const, content: userPrompt }
     ];
     
-    const content = await callLLM(messages, 4000);
-    
-    if (!content) {
-      console.error("[StudyNotes] Empty response from RunPod");
+    const result = await callLLMResult(messages, 4000);
+    if (!result.ok) {
+      if (result.reason === "TIMEOUT" && String(result.lastStatus || "").toUpperCase() === "IN_QUEUE") {
+        const err: any = new Error("RunPod job is still in queue (no capacity). Try again in a minute.");
+        err.code = "RUNPOD_IN_QUEUE";
+        err.jobId = result.jobId;
+        err.lastStatus = result.lastStatus;
+        throw err;
+      }
+      console.error("[StudyNotes] RunPod call failed:", result.reason, result.httpStatus || "");
       return null;
     }
+
+    const content = result.content;
 
     console.log(`[StudyNotes] Generated ${content.length} characters of notes`);
     return content.trim();
@@ -211,7 +219,23 @@ export async function POST(req: Request) {
     console.log(`[StudyNotes] Generating notes for: ${title} (source: ${source}, ${text.length} chars)`);
 
     // Generate study notes
-    const notes = await generateStudyNotesWithOpenAI(text);
+    let notes: string | null = null;
+    try {
+      notes = await generateStudyNotesWithOpenAI(text);
+    } catch (e: any) {
+      if (e?.code === "RUNPOD_IN_QUEUE") {
+        return NextResponse.json(
+          {
+            error: "AI generation is queued on RunPod and did not start within the request time limit. Please retry shortly.",
+            code: "RUNPOD_IN_QUEUE",
+            jobId: e?.jobId || null,
+            lastStatus: e?.lastStatus || null,
+          },
+          { status: 503 }
+        );
+      }
+      throw e;
+    }
     
     if (!notes) {
       return NextResponse.json(

@@ -78,24 +78,48 @@ function fingerprintSecret(value: string): string {
   }
 }
 
+export type LLMFailureReason =
+  | "NOT_CONFIGURED"
+  | "HTTP_ERROR"
+  | "STATUS_HTTP_ERROR"
+  | "JOB_FAILED"
+  | "TIMEOUT"
+  | "EMPTY_OUTPUT"
+  | "EXCEPTION";
+
+export type CallLLMResult =
+  | {
+      ok: true;
+      content: string;
+      jobId?: string;
+    }
+  | {
+      ok: false;
+      reason: LLMFailureReason;
+      httpStatus?: number;
+      jobId?: string;
+      lastStatus?: string;
+      message?: string;
+    };
+
 /**
  * Calls the RunPod serverless endpoint with DeepSeek vLLM model
  * @param messages - Array of chat messages in OpenAI format
  * @param maxTokens - Maximum tokens to generate (optional, defaults to 4000)
  * @returns The generated text content or null on error
  */
-export async function callLLM(
+export async function callLLMResult(
   messages: Message[],
   maxTokens = 4000,
   temperature = 0.7
-): Promise<string | null> {
+): Promise<CallLLMResult> {
   const endpoint = process.env.RUNPOD_ENDPOINT;
   const apiKey = process.env.RUNPOD_API_KEY;
   const model = process.env.RUNPOD_MODEL || "deepseek-r1";
 
   if (!endpoint || !apiKey) {
     console.error("[aiClient] RUNPOD_ENDPOINT or RUNPOD_API_KEY missing");
-    return null;
+    return { ok: false, reason: "NOT_CONFIGURED" };
   }
 
   const rawAuth = apiKey.trim();
@@ -148,7 +172,12 @@ export async function callLLM(
       console.error(
         `[aiClient] RunPod API error: ${resp.status} ${String(errorText || "").slice(0, 500)}`
       );
-      return null;
+      return {
+        ok: false,
+        reason: "HTTP_ERROR",
+        httpStatus: resp.status,
+        message: String(errorText || "").slice(0, 500),
+      };
     }
 
     const data = await resp.json();
@@ -159,7 +188,7 @@ export async function callLLM(
       const jobId = resolved?.id;
       if (!jobId) {
         console.error("[aiClient] RunPod /run response missing job id");
-        return null;
+        return { ok: false, reason: "HTTP_ERROR", message: "RunPod /run response missing job id" };
       }
 
       console.log(`[aiClient] RunPod async job started (id=${jobId})`);
@@ -169,6 +198,7 @@ export async function callLLM(
       const timeoutMs = 55_000;
       const intervalMs = 1500;
       let pollCount = 0;
+      let lastStatus = "";
 
       while (Date.now() - startedAt < timeoutMs) {
         pollCount++;
@@ -182,11 +212,18 @@ export async function callLLM(
           console.error(
             `[aiClient] RunPod status error: ${statusResp.status} ${String(statusText || "").slice(0, 500)}`
           );
-          return null;
+          return {
+            ok: false,
+            reason: "STATUS_HTTP_ERROR",
+            httpStatus: statusResp.status,
+            jobId: String(jobId),
+            message: String(statusText || "").slice(0, 500),
+          };
         }
 
         resolved = await statusResp.json();
         const status = String(resolved?.status || "").toUpperCase();
+        lastStatus = status;
 
         if (pollCount % 5 === 0 && status && status !== "COMPLETED") {
           console.log(
@@ -197,7 +234,13 @@ export async function callLLM(
         if (status === "COMPLETED") break;
         if (status === "FAILED" || status === "CANCELLED") {
           console.error("[aiClient] RunPod job failed:", coerceToString(resolved?.error) || "unknown error");
-          return null;
+          return {
+            ok: false,
+            reason: "JOB_FAILED",
+            jobId: String(jobId),
+            lastStatus: status,
+            message: coerceToString(resolved?.error) || "unknown error",
+          };
         }
 
         await sleep(intervalMs);
@@ -205,7 +248,13 @@ export async function callLLM(
 
       if (String(resolved?.status || "").toUpperCase() !== "COMPLETED") {
         console.error("[aiClient] RunPod job timed out waiting for completion");
-        return null;
+        return {
+          ok: false,
+          reason: "TIMEOUT",
+          jobId: String(jobId),
+          lastStatus: lastStatus || String(resolved?.status || ""),
+          message: "RunPod job timed out waiting for completion",
+        };
       }
 
       console.log(
@@ -229,13 +278,22 @@ export async function callLLM(
     const content = coerceToString(maybeText);
     if (!content) {
       console.error("[aiClient] Empty response from RunPod");
-      return null;
+      return { ok: false, reason: "EMPTY_OUTPUT" };
     }
 
     console.log(`[aiClient] Generated ${content.length} characters`);
-    return content;
+    return { ok: true, content, jobId: isAsyncRun ? String((resolved as any)?.id || "") || undefined : undefined };
   } catch (err: any) {
     console.error("[aiClient] RunPod error:", err.message);
-    return null;
+    return { ok: false, reason: "EXCEPTION", message: String(err?.message || err) };
   }
+}
+
+export async function callLLM(
+  messages: Message[],
+  maxTokens = 4000,
+  temperature = 0.7
+): Promise<string | null> {
+  const result = await callLLMResult(messages, maxTokens, temperature);
+  return result.ok ? result.content : null;
 }

@@ -2,7 +2,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/db";
-import { callLLM } from "@/lib/aiClient";
+import { callLLMResult } from "@/lib/aiClient";
 
 export const runtime = "nodejs";         // node runtime to allow larger bodies locally
 export const dynamic = "force-dynamic";
@@ -416,7 +416,22 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
   ];
 
   // Lower temperature to reduce non-JSON chatter.
-  const content = await callLLM(messages, OPENAI_MAX_OUTPUT_TOKENS, 0.2);
+  const result = await callLLMResult(messages, OPENAI_MAX_OUTPUT_TOKENS, 0.2);
+  if (!result.ok) {
+    // If the job is stuck in queue, don't silently generate junk cards.
+    if (result.reason === "TIMEOUT" && String(result.lastStatus || "").toUpperCase() === "IN_QUEUE") {
+      const err: any = new Error("RunPod job is still in queue (no capacity). Try again in a minute.");
+      err.code = "RUNPOD_IN_QUEUE";
+      err.jobId = result.jobId;
+      err.lastStatus = result.lastStatus;
+      throw err;
+    }
+
+    console.warn("[Cards] Using fallback cards due to API failure");
+    return null;
+  }
+
+  const content = result.content;
   
   if (!content) {
     console.warn("[Cards] Using fallback cards due to API failure");
@@ -830,7 +845,23 @@ export async function POST(req: Request) {
     console.log(`[Cards] Generating ${cardCount} flashcards for deck: ${title}`);
 
     // Generate cards
-    const aiCards = await generateCardsWithOpenAI(source, cardCount);
+    let aiCards: Awaited<ReturnType<typeof generateCardsWithOpenAI>> = null;
+    try {
+      aiCards = await generateCardsWithOpenAI(source, cardCount);
+    } catch (e: any) {
+      if (e?.code === "RUNPOD_IN_QUEUE") {
+        return NextResponse.json(
+          {
+            error: "AI generation is queued on RunPod and did not start within the request time limit. Please retry shortly.",
+            code: "RUNPOD_IN_QUEUE",
+            jobId: e?.jobId || null,
+            lastStatus: e?.lastStatus || null,
+          },
+          { status: 503 }
+        );
+      }
+      throw e;
+    }
     const cards = aiCards ?? (() => {
       console.warn("[Cards] ⚠️ USING FALLBACK CARDS - AI generation failed or unavailable");
       return fallbackCards(source).map((c) => ({ question: c.question, answer: c.answer }));
