@@ -1,34 +1,30 @@
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
+import { handleUpload, type HandleUploadBody } from "@vercel/blob/client";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 export async function POST(request: Request) {
+  const body = (await request.json()) as HandleUploadBody;
+
   try {
-    const authResult = await auth();
-    if (!authResult.userId) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    // `handleUpload` returns a Response object (JSON) that the Blob client SDK expects.
-    // Import is dynamic to avoid bundling issues and keep this route server-only.
-    const { handleUpload } = await import("@vercel/blob/client");
-
-    const body = await request.json().catch(() => null);
-    if (!body) {
-      return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
-    }
-
-    return await handleUpload({
+    const jsonResponse = await handleUpload({
       request,
       body,
       onBeforeGenerateToken: async (pathname: string) => {
+        // ⚠️ Authenticate and authorize users before generating the token.
+        const authResult = await auth();
+        if (!authResult.userId) {
+          throw new Error("Unauthorized");
+        }
+
         // Constrain uploads to a known prefix so clients can't write arbitrary paths.
         if (!pathname.startsWith("uploads/")) {
           throw new Error("Invalid upload pathname");
         }
+
         return {
           allowedContentTypes: [
             "application/pdf",
@@ -42,22 +38,31 @@ export async function POST(request: Request) {
             "text/vtt",
             "application/x-subrip",
           ],
-          tokenPayload: authResult.userId,
+          tokenPayload: JSON.stringify({ userId: authResult.userId }),
         };
       },
-      onUploadCompleted: async ({ blob, tokenPayload }: any) => {
+      onUploadCompleted: async ({ blob, tokenPayload }) => {
+        let userId: string | null = null;
+        try {
+          const parsed = tokenPayload ? JSON.parse(tokenPayload) : null;
+          userId = parsed?.userId || null;
+        } catch {
+          userId = null;
+        }
+
         console.log("[BlobUpload] Completed", {
           url: blob?.url,
           pathname: blob?.pathname,
-          userId: tokenPayload,
+          userId,
         });
       },
     });
-  } catch (err: any) {
-    console.error("[BlobUpload] Route error:", err?.message || err);
+
+    return NextResponse.json(jsonResponse);
+  } catch (error) {
     return NextResponse.json(
-      { error: err?.message || "Blob upload route failed", code: "BLOB_UPLOAD_ROUTE_FAILED" },
-      { status: 500 }
+      { error: error instanceof Error ? error.message : String(error) },
+      { status: 400 }
     );
   }
 }
