@@ -37,6 +37,7 @@ export default function CreateForm() {
     return upload(pathname, file, {
       access: "public",
       handleUploadUrl: "/api/blob-upload",
+      multipart: file.size > 10 * 1024 * 1024,
     });
   }
 
@@ -85,7 +86,12 @@ export default function CreateForm() {
             fd.append("docName", f.name || "document");
             toast.success("Document uploaded. Generating...");
           } catch (err: any) {
-            console.warn("[Client] Blob doc upload failed; falling back to direct upload:", err?.message || err);
+            console.warn("[Client] Blob doc upload failed:", err?.message || err);
+            // If the doc is big, we cannot safely fall back to sending it through the API
+            // (it will likely hit Vercel request size limits and 413).
+            if (f.size > API_BODY_LIMIT) {
+              throw new Error("Document upload failed. Please retry (Blob upload is required for large files).");
+            }
             fd.append("file", f);
           }
         }
