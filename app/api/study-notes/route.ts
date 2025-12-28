@@ -181,12 +181,23 @@ export async function POST(req: Request) {
 
     // In production we should not silently fail if RunPod isn't configured.
     if (process.env.NODE_ENV === "production") {
-      const missingRunpod = !process.env.RUNPOD_ENDPOINT || !process.env.RUNPOD_API_KEY;
+      const missingEndpoint = !process.env.RUNPOD_ENDPOINT;
+      const missingApiKey = !process.env.RUNPOD_API_KEY;
+      const missingRunpod = missingEndpoint || missingApiKey;
       if (missingRunpod) {
         return NextResponse.json(
           {
             error: "RunPod is not configured on the server. Set RUNPOD_ENDPOINT and RUNPOD_API_KEY in Vercel environment variables.",
             code: "RUNPOD_NOT_CONFIGURED",
+            missing: {
+              RUNPOD_ENDPOINT: missingEndpoint,
+              RUNPOD_API_KEY: missingApiKey,
+            },
+            vercel: {
+              VERCEL_ENV: process.env.VERCEL_ENV || null,
+              VERCEL_GIT_COMMIT_REF: process.env.VERCEL_GIT_COMMIT_REF || null,
+              VERCEL_GIT_COMMIT_SHA: process.env.VERCEL_GIT_COMMIT_SHA || null,
+            },
           },
           { status: 500 }
         );
