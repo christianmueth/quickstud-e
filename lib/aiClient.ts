@@ -18,6 +18,37 @@ function safeEndpointLabel(endpoint: string): string {
   }
 }
 
+function parseEndpoint(endpoint: string): {
+  url: URL | null;
+  normalizedPathname: string | null;
+} {
+  try {
+    const url = new URL(endpoint);
+    const normalizedPathname = url.pathname.replace(/\/+$/, "");
+    return { url, normalizedPathname };
+  } catch {
+    return { url: null, normalizedPathname: null };
+  }
+}
+
+function buildRunpodStatusUrl(endpoint: string, jobId: string): string {
+  const { url, normalizedPathname } = parseEndpoint(endpoint);
+  if (!url || !normalizedPathname) {
+    // Best-effort fallback matching prior behavior.
+    return endpoint.replace(/\/run\/?($|\?)/, `/status/${jobId}$1`);
+  }
+
+  if (!normalizedPathname.endsWith("/run")) {
+    return endpoint;
+  }
+
+  url.pathname = normalizedPathname.replace(/\/run$/, `/status/${jobId}`);
+  // Status endpoints typically do not take the same query params as /run.
+  url.search = "";
+  url.hash = "";
+  return url.toString();
+}
+
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -58,7 +89,8 @@ export async function callLLM(
   const rawAuth = apiKey.trim();
   const authHeaderValue = rawAuth.toLowerCase().startsWith("bearer ") ? rawAuth : `Bearer ${rawAuth}`;
 
-  const isAsyncRun = /\/run\/?$/.test(endpoint);
+  const { normalizedPathname } = parseEndpoint(endpoint);
+  const isAsyncRun = (normalizedPathname ?? endpoint).replace(/\/+$/, "").endsWith("/run");
 
   try {
     console.log(
@@ -102,7 +134,7 @@ export async function callLLM(
 
       console.log(`[aiClient] RunPod async job started (id=${jobId})`);
 
-      const statusUrl = endpoint.replace(/\/run\/?$/, `/status/${jobId}`);
+      const statusUrl = buildRunpodStatusUrl(endpoint, String(jobId));
       const startedAt = Date.now();
       const timeoutMs = 55_000;
       const intervalMs = 1500;
