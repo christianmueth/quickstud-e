@@ -125,6 +125,13 @@ export async function callLLM(
 
         resolved = await statusResp.json();
         const status = String(resolved?.status || "").toUpperCase();
+
+        if (pollCount % 5 === 0 && status && status !== "COMPLETED") {
+          console.log(
+            `[aiClient] RunPod async job status (id=${jobId}, poll=${pollCount}, ms=${Date.now() - startedAt}): ${status}`
+          );
+        }
+
         if (status === "COMPLETED") break;
         if (status === "FAILED" || status === "CANCELLED") {
           console.error("[aiClient] RunPod job failed:", coerceToString(resolved?.error) || "unknown error");
