@@ -9,6 +9,10 @@ interface Message {
   content: string;
 }
 
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function coerceToString(value: unknown): string | null {
   if (typeof value === "string") return value;
   if (value == null) return null;
@@ -45,8 +49,10 @@ export async function callLLM(
   const rawAuth = apiKey.trim();
   const authHeaderValue = rawAuth.toLowerCase().startsWith("bearer ") ? rawAuth : `Bearer ${rawAuth}`;
 
+  const isAsyncRun = /\/run\/?$/.test(endpoint);
+
   try {
-    console.log(`[aiClient] Calling RunPod endpoint with model: ${model}`);
+    console.log(`[aiClient] Calling RunPod endpoint (${isAsyncRun ? "run" : "runsync"}) with model: ${model}`);
     
     const resp = await fetch(endpoint, {
       method: "POST",
@@ -74,12 +80,57 @@ export async function callLLM(
 
     const data = await resp.json();
 
+    // If using /run (async), poll /status/<id> until completion.
+    let resolved = data as any;
+    if (isAsyncRun) {
+      const jobId = resolved?.id;
+      if (!jobId) {
+        console.error("[aiClient] RunPod /run response missing job id");
+        return null;
+      }
+
+      const statusUrl = endpoint.replace(/\/run\/?$/, `/status/${jobId}`);
+      const startedAt = Date.now();
+      const timeoutMs = 55_000;
+      const intervalMs = 1500;
+
+      while (Date.now() - startedAt < timeoutMs) {
+        const statusResp = await fetch(statusUrl, {
+          method: "GET",
+          headers: { Authorization: authHeaderValue },
+        });
+
+        if (!statusResp.ok) {
+          const statusText = await statusResp.text().catch(() => "");
+          console.error(
+            `[aiClient] RunPod status error: ${statusResp.status} ${String(statusText || "").slice(0, 500)}`
+          );
+          return null;
+        }
+
+        resolved = await statusResp.json();
+        const status = String(resolved?.status || "").toUpperCase();
+        if (status === "COMPLETED") break;
+        if (status === "FAILED" || status === "CANCELLED") {
+          console.error("[aiClient] RunPod job failed:", coerceToString(resolved?.error) || "unknown error");
+          return null;
+        }
+
+        await sleep(intervalMs);
+      }
+
+      if (String(resolved?.status || "").toUpperCase() !== "COMPLETED") {
+        console.error("[aiClient] RunPod job timed out waiting for completion");
+        return null;
+      }
+    }
+
     // RunPod output shapes vary by template. Handle common variants:
     // - data.output.choices[0].message.content (OpenAI-like)
     // - data.output.choices[0].text
     // - data.output (string)
     // - data.output.output_text / generated_text
-    const output = data?.output;
+    const output = resolved?.output;
     const maybeText =
       output?.choices?.[0]?.message?.content ??
       output?.choices?.[0]?.text ??
