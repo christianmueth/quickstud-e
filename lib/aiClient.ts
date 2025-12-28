@@ -42,13 +42,16 @@ export async function callLLM(
     return null;
   }
 
+  const rawAuth = apiKey.trim();
+  const authHeaderValue = rawAuth.toLowerCase().startsWith("bearer ") ? rawAuth : `Bearer ${rawAuth}`;
+
   try {
     console.log(`[aiClient] Calling RunPod endpoint with model: ${model}`);
     
     const resp = await fetch(endpoint, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${apiKey}`,
+        Authorization: authHeaderValue,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
@@ -62,8 +65,10 @@ export async function callLLM(
     });
 
     if (!resp.ok) {
-      const errorText = await resp.text();
-      console.error(`[aiClient] RunPod API error: ${resp.status} ${errorText}`);
+      const errorText = await resp.text().catch(() => "");
+      console.error(
+        `[aiClient] RunPod API error: ${resp.status} ${String(errorText || "").slice(0, 500)}`
+      );
       return null;
     }
 

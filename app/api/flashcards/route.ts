@@ -600,6 +600,12 @@ export async function POST(req: Request) {
         const isRemote = !!videoUrl && !video;
         const videoSize = video?.size || 0;
         console.log("[Video] Processing", isRemote ? "remote video URL" : "uploaded video file", isRemote ? videoUrl : video!.name, "size:", videoSize);
+
+        // Some deployments/browsers can submit an empty file object; skip it.
+        if (!isRemote && video && videoSize === 0) {
+          console.warn("[Video] Uploaded video file has size 0; skipping transcription.");
+          throw new Error("Empty video upload");
+        }
         
         // Validate OPENAI_API_KEY before attempting expensive processing
         if (!process.env.OPENAI_API_KEY) {
