@@ -179,6 +179,20 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    // In production we should not silently fail if RunPod isn't configured.
+    if (process.env.NODE_ENV === "production") {
+      const missingRunpod = !process.env.RUNPOD_ENDPOINT || !process.env.RUNPOD_API_KEY;
+      if (missingRunpod) {
+        return NextResponse.json(
+          {
+            error: "RunPod is not configured on the server. Set RUNPOD_ENDPOINT and RUNPOD_API_KEY in Vercel environment variables.",
+            code: "RUNPOD_NOT_CONFIGURED",
+          },
+          { status: 500 }
+        );
+      }
+    }
+
     const fd = await req.formData();
     
     // Extract content
