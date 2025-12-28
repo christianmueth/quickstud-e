@@ -9,6 +9,19 @@ interface Message {
   content: string;
 }
 
+function coerceToString(value: unknown): string | null {
+  if (typeof value === "string") return value;
+  if (value == null) return null;
+
+  // Some providers return a plain object (e.g., { choices: [...] })
+  // If we can't find a known text field, avoid returning "[object Object]".
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Calls the RunPod serverless endpoint with DeepSeek vLLM model
  * @param messages - Array of chat messages in OpenAI format
@@ -17,7 +30,8 @@ interface Message {
  */
 export async function callLLM(
   messages: Message[],
-  maxTokens = 4000
+  maxTokens = 4000,
+  temperature = 0.7
 ): Promise<string | null> {
   const endpoint = process.env.RUNPOD_ENDPOINT;
   const apiKey = process.env.RUNPOD_API_KEY;
@@ -42,7 +56,7 @@ export async function callLLM(
           model: model,
           messages: messages,
           max_tokens: maxTokens,
-          temperature: 0.7,
+          temperature,
         },
       }),
     });
@@ -54,12 +68,21 @@ export async function callLLM(
     }
 
     const data = await resp.json();
-    
-    // RunPod response format: data.output.choices[0].message.content or data.output
-    const content = 
-      data.output?.choices?.[0]?.message?.content || 
-      data.output;
 
+    // RunPod output shapes vary by template. Handle common variants:
+    // - data.output.choices[0].message.content (OpenAI-like)
+    // - data.output.choices[0].text
+    // - data.output (string)
+    // - data.output.output_text / generated_text
+    const output = data?.output;
+    const maybeText =
+      output?.choices?.[0]?.message?.content ??
+      output?.choices?.[0]?.text ??
+      output?.output_text ??
+      output?.generated_text ??
+      output;
+
+    const content = coerceToString(maybeText);
     if (!content) {
       console.error("[aiClient] Empty response from RunPod");
       return null;

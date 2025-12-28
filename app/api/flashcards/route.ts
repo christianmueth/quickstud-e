@@ -35,6 +35,13 @@ function guessKindFromNameType(name?: string, type?: string): "pdf" | "pptx" | "
 }
 const stripFence = (s: string) => s.replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/\s*```$/i, "").trim();
 
+function extractFirstJsonArray(s: string): string | null {
+  const first = s.indexOf("[");
+  const last = s.lastIndexOf("]");
+  if (first === -1 || last === -1 || last <= first) return null;
+  return s.slice(first, last + 1);
+}
+
 async function extractFromYouTubeStrict(u: URL): Promise<{ title: string; text: string }> {
   const id = getYouTubeId(u);
   if (!id) throw new Error("Could not parse YouTube video ID.");
@@ -407,8 +414,9 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
     { role: "system" as const, content: "You are an expert tutor creating educational flashcards. Return only valid JSON with no additional text." }, 
     { role: "user" as const, content: buildFlashcardPrompt(source, count) }
   ];
-  
-  const content = await callLLM(messages, OPENAI_MAX_OUTPUT_TOKENS);
+
+  // Lower temperature to reduce non-JSON chatter.
+  const content = await callLLM(messages, OPENAI_MAX_OUTPUT_TOKENS, 0.2);
   
   if (!content) {
     console.warn("[Cards] Using fallback cards due to API failure");
@@ -419,10 +427,28 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
   console.log("[Cards] RunPod returned", cleanedContent.length, "chars of response");
   
   try {
-    const arr = JSON.parse(cleanedContent) as Array<{ q?: string; a?: string }>;
+    let jsonText = cleanedContent;
+    try {
+      JSON.parse(jsonText);
+    } catch {
+      const extracted = extractFirstJsonArray(jsonText);
+      if (extracted) jsonText = extracted;
+    }
+
+    const arr = JSON.parse(jsonText) as Array<{
+      q?: string;
+      a?: string;
+      question?: string;
+      answer?: string;
+    }>;
+
     const mapped = arr
-      .filter((c) => typeof c?.q === "string" && typeof c?.a === "string")
-      .map((c) => ({ question: (c.q || "").slice(0, 500), answer: (c.a || "").slice(0, 2000) }));
+      .map((c) => ({
+        question: typeof c?.q === "string" ? c.q : typeof c?.question === "string" ? c.question : "",
+        answer: typeof c?.a === "string" ? c.a : typeof c?.answer === "string" ? c.answer : "",
+      }))
+      .filter((c) => c.question && c.answer)
+      .map((c) => ({ question: c.question.slice(0, 500), answer: c.answer.slice(0, 2000) }));
     if (mapped.length === 0) {
       console.warn("[Cards] RunPod returned empty card array, using fallback");
       return null;
