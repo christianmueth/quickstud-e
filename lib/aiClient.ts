@@ -9,6 +9,15 @@ interface Message {
   content: string;
 }
 
+function safeEndpointLabel(endpoint: string): string {
+  try {
+    const url = new URL(endpoint);
+    return `${url.host}${url.pathname}`;
+  } catch {
+    return endpoint;
+  }
+}
+
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -52,7 +61,9 @@ export async function callLLM(
   const isAsyncRun = /\/run\/?$/.test(endpoint);
 
   try {
-    console.log(`[aiClient] Calling RunPod endpoint (${isAsyncRun ? "run" : "runsync"}) with model: ${model}`);
+    console.log(
+      `[aiClient] Calling RunPod ${isAsyncRun ? "/run" : "/runsync"} at ${safeEndpointLabel(endpoint)} (model=${model})`
+    );
     
     const resp = await fetch(endpoint, {
       method: "POST",
@@ -89,12 +100,16 @@ export async function callLLM(
         return null;
       }
 
+      console.log(`[aiClient] RunPod async job started (id=${jobId})`);
+
       const statusUrl = endpoint.replace(/\/run\/?$/, `/status/${jobId}`);
       const startedAt = Date.now();
       const timeoutMs = 55_000;
       const intervalMs = 1500;
+      let pollCount = 0;
 
       while (Date.now() - startedAt < timeoutMs) {
+        pollCount++;
         const statusResp = await fetch(statusUrl, {
           method: "GET",
           headers: { Authorization: authHeaderValue },
@@ -123,6 +138,10 @@ export async function callLLM(
         console.error("[aiClient] RunPod job timed out waiting for completion");
         return null;
       }
+
+      console.log(
+        `[aiClient] RunPod async job completed (id=${jobId}, polls=${pollCount}, ms=${Date.now() - startedAt})`
+      );
     }
 
     // RunPod output shapes vary by template. Handle common variants:
