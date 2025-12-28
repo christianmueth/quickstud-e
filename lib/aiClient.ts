@@ -87,7 +87,8 @@ export async function callLLM(
   }
 
   const rawAuth = apiKey.trim();
-  const authHeaderValue = rawAuth.toLowerCase().startsWith("bearer ") ? rawAuth : `Bearer ${rawAuth}`;
+  const bearerAuthHeaderValue = rawAuth.toLowerCase().startsWith("bearer ") ? rawAuth : `Bearer ${rawAuth}`;
+  const rawAuthHeaderValue = rawAuth.replace(/^bearer\s+/i, "");
 
   const { normalizedPathname } = parseEndpoint(endpoint);
   const isAsyncRun = (normalizedPathname ?? endpoint).replace(/\/+$/, "").endsWith("/run");
@@ -96,22 +97,36 @@ export async function callLLM(
     console.log(
       `[aiClient] Calling RunPod ${isAsyncRun ? "/run" : "/runsync"} at ${safeEndpointLabel(endpoint)} (model=${model})`
     );
-    
-    const resp = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        Authorization: authHeaderValue,
-        "Content-Type": "application/json",
+
+    const body = JSON.stringify({
+      input: {
+        model: model,
+        messages: messages,
+        max_tokens: maxTokens,
+        temperature,
       },
-      body: JSON.stringify({
-        input: {
-          model: model,
-          messages: messages,
-          max_tokens: maxTokens,
-          temperature,
-        },
-      }),
     });
+
+    const doPost = async (authorizationValue: string) =>
+      fetch(endpoint, {
+        method: "POST",
+        headers: {
+          Authorization: authorizationValue,
+          "Content-Type": "application/json",
+        },
+        body,
+      });
+
+    // RunPod generally expects Bearer auth, but some users paste tokens in different formats.
+    // If we get a 401, retry once with the alternate format to rule out header formatting.
+    let authUsed = bearerAuthHeaderValue;
+    let resp = await doPost(authUsed);
+    if (resp.status === 401) {
+      const alternate = authUsed === bearerAuthHeaderValue ? rawAuthHeaderValue : bearerAuthHeaderValue;
+      console.warn("[aiClient] RunPod returned 401; retrying once with alternate Authorization format");
+      authUsed = alternate;
+      resp = await doPost(authUsed);
+    }
 
     if (!resp.ok) {
       const errorText = await resp.text().catch(() => "");
@@ -144,7 +159,7 @@ export async function callLLM(
         pollCount++;
         const statusResp = await fetch(statusUrl, {
           method: "GET",
-          headers: { Authorization: authHeaderValue },
+          headers: { Authorization: authUsed },
         });
 
         if (!statusResp.ok) {
