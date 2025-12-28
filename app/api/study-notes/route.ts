@@ -137,6 +137,8 @@ async function extractTextFromSource(fd: FormData): Promise<{ text: string; titl
   const urlStr = fd.get("url") as string;
   const textContent = fd.get("source") as string;
   const file = fd.get("file") as File | null;
+  const docUrl = (fd.get("docUrl") as string) || "";
+  const docName = (fd.get("docName") as string) || "";
 
   if (textContent) {
     text = truncate(cleanText(textContent));
@@ -153,6 +155,32 @@ async function extractTextFromSource(fd: FormData): Promise<{ text: string; titl
       source = "pptx";
     }
     text = truncate(text);
+  } else if (docUrl) {
+    // Fetch PDF/PPTX from remote URL (e.g. Vercel Blob) to avoid request-size limits.
+    try {
+      const head = await fetch(docUrl, { method: "HEAD" }).catch(() => null);
+      const ct = head?.ok ? head.headers.get("content-type") || "" : "";
+      const res = await fetch(docUrl);
+      if (!res.ok) throw new Error(`Failed to fetch document (${res.status})`);
+      const buffer = Buffer.from(await res.arrayBuffer());
+
+      const lowerName = (docName || "").toLowerCase();
+      const isPdf = lowerName.endsWith(".pdf") || ct.includes("application/pdf");
+      const isPptx = lowerName.endsWith(".pptx") || ct.includes("presentation");
+
+      if (isPdf) {
+        text = await extractPdfTextFromBuffer(buffer);
+        source = "pdf";
+      } else if (isPptx) {
+        text = await extractPptxTextFromBuffer(buffer);
+        source = "pptx";
+      }
+
+      text = truncate(text);
+    } catch (err) {
+      console.error("[StudyNotes] docUrl fetch/extract error:", err);
+      text = "";
+    }
   } else if (urlStr) {
     // For URLs, try to extract content (simplified - you could enhance this)
     try {

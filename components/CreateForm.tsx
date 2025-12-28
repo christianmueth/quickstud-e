@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import { toast } from "sonner";
+import { upload } from "@vercel/blob/client";
 
 export default function CreateForm() {
   const API_BODY_LIMIT = 4 * 1024 * 1024; // ~4MB body limit for serverless; larger videos will be uploaded to Blob
@@ -29,6 +30,15 @@ export default function CreateForm() {
   }
 
   const MAX_FILE_SIZE = 200 * 1024 * 1024; // 200MB limit for PDF/PPTX
+
+  async function uploadViaBlob(file: File, kind: "doc" | "video") {
+    const safeName = (file.name || `${kind}.bin`).replace(/[^a-zA-Z0-9._-]+/g, "_");
+    const pathname = `uploads/${kind}/${Date.now()}-${safeName}`;
+    return upload(pathname, file, {
+      access: "public",
+      handleUploadUrl: "/api/blob-upload",
+    });
+  }
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -63,8 +73,22 @@ export default function CreateForm() {
       
       // Add back only the file input that matches current content type
       if (contentType === "pdf") {
-        const f = original.get("file");
-        if (f) fd.append("file", f);
+        const f = original.get("file") as File | null;
+        if (f && f.size > 0) {
+          // Upload docs via direct Blob upload to avoid Vercel request body limits (413)
+          const sizeMB = f.size / (1024 * 1024);
+          const sizeDisplay = sizeMB >= 1 ? `${sizeMB.toFixed(1)}MB` : `${(f.size / 1024).toFixed(0)}KB`;
+          toast.info(`Uploading document (${sizeDisplay})...`);
+          try {
+            const blob = await uploadViaBlob(f, "doc");
+            fd.append("docUrl", blob.url);
+            fd.append("docName", f.name || "document");
+            toast.success("Document uploaded. Generating...");
+          } catch (err: any) {
+            console.warn("[Client] Blob doc upload failed; falling back to direct upload:", err?.message || err);
+            fd.append("file", f);
+          }
+        }
       } else if (contentType === "subtitle") {
         const s = original.get("subtitle");
         if (s) fd.append("subtitle", s);
@@ -90,7 +114,7 @@ export default function CreateForm() {
         });
         
         if (actualSize > API_BODY_LIMIT) {
-          // Upload to Blob for large videos (server-side upload)
+          // Upload to Blob for large videos (direct client upload)
           const sizeMB = videoFile.size / (1024 * 1024);
           const sizeKB = videoFile.size / 1024;
           const sizeDisplay = sizeMB >= 1 
@@ -105,25 +129,10 @@ export default function CreateForm() {
           });
           
           toast.info(`Uploading video (${sizeDisplay})...`);
-          
-          const uploadFormData = new FormData();
-          uploadFormData.append("file", videoFile);
-          
-          console.log("[Client] Sending to blob upload, FormData size:", uploadFormData.has("file"));
-          
-          const uploadRes = await fetch("/api/blob-upload-url", {
-            method: "POST",
-            body: uploadFormData
-          });
-          
-          if (!uploadRes.ok) {
-            const errData = await uploadRes.json().catch(() => ({}));
-            throw new Error(errData.error || "Failed to upload video");
-          }
-          
-          const { url } = await uploadRes.json();
-          
-          fd.append("videoUrl", url);
+
+          const blob = await uploadViaBlob(videoFile, "video");
+
+          fd.append("videoUrl", blob.url);
           fd.append("videoName", videoFile.name || "video.mp4");
           toast.success("Video uploaded. Processing may take up to 5 minutes. YouTube URLs are much faster!");
         } else {

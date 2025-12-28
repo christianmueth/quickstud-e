@@ -609,7 +609,9 @@ export async function POST(req: Request) {
     }
 
     // Validate content
-    if (!source && !urlStr && !file && !video && !audioFile && !subtitle) {
+    const hasRemoteVideo = !!videoUrl;
+    const hasDocUrl = !!docUrl;
+    if (!source && !urlStr && !file && !video && !audioFile && !subtitle && !hasRemoteVideo && !hasDocUrl) {
       return NextResponse.json(
         { error: "Please provide content through text, URL, PDF, PPTX, video, or audio", code: "NO_CONTENT" },
         { status: 400 }
