@@ -148,7 +148,19 @@ export default function CreateForm() {
       const res = await fetch(apiEndpoint, { method: "POST", body: fd });
       if (!res.ok) {
         let msg = `Failed to generate (HTTP ${res.status})`;
-        try { const j = await res.json(); if (j?.error) msg = `${j.error}${j?.code ? ` [${j.code}]` : ""}`; } catch {}
+        let j: any = null;
+        try {
+          j = await res.json();
+          if (j?.error) msg = `${j.error}${j?.code ? ` [${j.code}]` : ""}`;
+        } catch {}
+
+        // RunPod serverless can queue jobs; when it doesn't start within our route timeout,
+        // the API returns a retryable 503 instead of silently creating fallback content.
+        if (res.status === 503 && j?.code === "RUNPOD_IN_QUEUE") {
+          toast.error("AI is queued on RunPod (no capacity yet). Please retry in ~30–60 seconds.");
+          return;
+        }
+
         throw new Error(msg);
       }
 
