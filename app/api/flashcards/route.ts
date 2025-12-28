@@ -534,12 +534,19 @@ export async function POST(req: Request) {
     const urlStr = String(form.get("url") || "").trim();
     const docUrl = getLast("docUrl").trim();
     const docName = getLast("docName").trim();
-  const file = form.get("file") as File | null;
-  const video = form.get("video") as File | null;
-  const subtitle = form.get("subtitle") as File | null;
-    const audioFile = form.get("audio") as File | null;
+  let file = form.get("file") as File | null;
+  let video = form.get("video") as File | null;
+  let subtitle = form.get("subtitle") as File | null;
+  let audioFile = form.get("audio") as File | null;
   const videoUrl = getLast("videoUrl").trim();
   const videoName = getLast("videoName").trim();
+
+    // Some browsers/frameworks can submit an empty File placeholder.
+    // Treat those as not provided so we don't accidentally trigger video/audio paths.
+    if (file && file.size === 0) file = null;
+    if (video && video.size === 0) video = null;
+    if (subtitle && subtitle.size === 0) subtitle = null;
+    if (audioFile && audioFile.size === 0) audioFile = null;
     
     // Debug logging
     console.log("[Form] Received inputs:", {
@@ -552,6 +559,9 @@ export async function POST(req: Request) {
       hasAudio: !!audioFile,
       videoUrl: videoUrl || undefined,
       videoName: videoName || undefined,
+      fileSize: file?.size,
+      videoSize: video?.size,
+      subtitleSize: subtitle?.size,
       audioFileName: audioFile?.name,
       audioFileSize: audioFile?.size
     });
