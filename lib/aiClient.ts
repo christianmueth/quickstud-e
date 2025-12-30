@@ -11,6 +11,43 @@ interface Message {
   content: string;
 }
 
+function stripThinkBlocks(text: string): string {
+  // DeepSeek-style reasoning blocks can break JSON parsing downstream.
+  // Remove <think>...</think> and also any stray closing tags.
+  return text
+    .replace(/<think>[\s\S]*?<\/think>\s*/gi, "")
+    .replace(/<\/think>\s*/gi, "")
+    .trim();
+}
+
+function extractTextFromRunpodOutput(output: any): string | null {
+  const root = Array.isArray(output) ? output?.[0] : output;
+
+  const tokens: unknown = root?.choices?.[0]?.tokens;
+  if (Array.isArray(tokens)) {
+    const raw = tokens.map((t) => (typeof t === "string" ? t : "")).join("");
+    const cleaned = stripThinkBlocks(raw);
+    return cleaned || null;
+  }
+
+  const maybeText =
+    root?.choices?.[0]?.message?.content ??
+    root?.choices?.[0]?.text ??
+    root?.output_text ??
+    root?.generated_text ??
+    root;
+
+  if (typeof maybeText === "string") {
+    const cleaned = stripThinkBlocks(maybeText);
+    return cleaned || null;
+  }
+
+  const coerced = coerceToString(maybeText);
+  if (!coerced) return null;
+  const cleaned = stripThinkBlocks(coerced);
+  return cleaned || null;
+}
+
 function safeEndpointLabel(endpoint: string): string {
   try {
     const url = new URL(endpoint);
@@ -260,29 +297,25 @@ export async function callLLMResult(
       console.log(
         `[aiClient] RunPod async job completed (id=${jobId}, polls=${pollCount}, ms=${Date.now() - startedAt})`
       );
+
+      const content = extractTextFromRunpodOutput(resolved?.output);
+      if (!content) {
+        console.error("[aiClient] Empty response from RunPod");
+        return { ok: false, reason: "EMPTY_OUTPUT", jobId: String(jobId) };
+      }
+
+      console.log(`[aiClient] Generated ${content.length} characters`);
+      return { ok: true, content, jobId: String(jobId) };
     }
 
-    // RunPod output shapes vary by template. Handle common variants:
-    // - data.output.choices[0].message.content (OpenAI-like)
-    // - data.output.choices[0].text
-    // - data.output (string)
-    // - data.output.output_text / generated_text
-    const output = resolved?.output;
-    const maybeText =
-      output?.choices?.[0]?.message?.content ??
-      output?.choices?.[0]?.text ??
-      output?.output_text ??
-      output?.generated_text ??
-      output;
-
-    const content = coerceToString(maybeText);
+    const content = extractTextFromRunpodOutput(resolved?.output);
     if (!content) {
       console.error("[aiClient] Empty response from RunPod");
       return { ok: false, reason: "EMPTY_OUTPUT" };
     }
 
     console.log(`[aiClient] Generated ${content.length} characters`);
-    return { ok: true, content, jobId: isAsyncRun ? String((resolved as any)?.id || "") || undefined : undefined };
+    return { ok: true, content };
   } catch (err: any) {
     console.error("[aiClient] RunPod error:", err.message);
     return { ok: false, reason: "EXCEPTION", message: String(err?.message || err) };
