@@ -432,6 +432,28 @@ Rules:
 Material:
 ${text}`;
 }
+
+function buildFlashcardPromptQA(text: string, count: number) {
+  const n = Math.min(Math.max(count, 5), 50);
+  return `Generate EXACTLY ${n} flashcards from the material.
+
+ABSOLUTE OUTPUT FORMAT (NO JSON):
+- Output ONLY flashcards in this repeated block format.
+- No preface, no explanation, no markdown, no code fences, no numbering.
+
+Format (repeat EXACTLY ${n} times):
+Q: <question>
+A: <answer>
+---
+
+Rules:
+- One concept per card
+- Questions are specific and testable
+- Answers are concise (1–3 sentences)
+
+Material:
+${text}`;
+}
 async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUNT) {
   if (!process.env.RUNPOD_API_KEY) {
     console.warn("[Cards] RunPod API key not configured, using fallback");
@@ -531,6 +553,27 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
     return mapped;
   }
 
+  function parseCardsFromQA(text: string) {
+    const n = Math.min(Math.max(count, 5), 50);
+    const normalized = String(text || "").replace(/\r\n/g, "\n");
+    const out: Array<{ question: string; answer: string }> = [];
+
+    // Matches repeated blocks:
+    // Q: ...
+    // A: ...
+    // ---
+    const re = /(?:^|\n)\s*Q\s*[:\-]\s*([\s\S]*?)\n\s*A\s*[:\-]\s*([\s\S]*?)(?=\n\s*(?:---|Q\s*[:\-])|$)/gi;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(normalized)) && out.length < n) {
+      const q = cleanText(m[1] || "");
+      const a = cleanText(m[2] || "");
+      if (!q || !a) continue;
+      out.push({ question: q.slice(0, 500), answer: a.slice(0, 2000) });
+    }
+
+    return out.length ? out : null;
+  }
+
   // First parse attempt
   try {
     const parsed = await parseCardsFromJsonLike(cleanedContent);
@@ -541,6 +584,7 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
   }
 
   // One-shot repair attempt: ask the model to convert its own output into JSON-only.
+  let repairJobId: string | null = null;
   try {
     const repairMessages = [
       {
@@ -560,22 +604,46 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
       guidedJson,
     });
     if (repaired.ok && repaired.content) {
-      const repairJobId = repaired.jobId;
+      repairJobId = repaired.jobId || null;
       cleanedContent = stripFence(repaired.content);
       const parsed = await parseCardsFromJsonLike(cleanedContent);
       if (parsed) return parsed;
-      // If parsing still fails, include repair job id for debugging.
-      (globalThis as any).__lastRunpodRepairJobId = repairJobId;
     }
   } catch (e) {
     console.warn("[Cards] Repair pass failed:", (e as any)?.message || e);
+  }
+
+  // Second fallback: request strict Q/A blocks (more reliable than JSON for reasoning models), then parse into cards.
+  try {
+    const qaMessages = [
+      {
+        role: "system" as const,
+        content:
+          "You are a flashcard generator. Output ONLY flashcards in the requested Q/A format. No analysis, no reasoning, no extra text.",
+      },
+      { role: "user" as const, content: buildFlashcardPromptQA(source, count) },
+    ];
+
+    const qaResult = await callLLMResult(qaMessages, OPENAI_MAX_OUTPUT_TOKENS, 0, {
+      topP: 0.1,
+    });
+
+    if (qaResult.ok && qaResult.content) {
+      const parsed = parseCardsFromQA(qaResult.content);
+      if (parsed && parsed.length > 0) {
+        console.log("[Cards] Parsed", parsed.length, "cards from Q/A fallback format");
+        return parsed;
+      }
+    }
+  } catch (e) {
+    console.warn("[Cards] Q/A fallback pass failed:", (e as any)?.message || e);
   }
 
   const err: any = new Error("RunPod returned non-JSON output; cannot parse flashcards.");
   err.code = "RUNPOD_BAD_OUTPUT";
   err.preview = String(cleanedContent || "").slice(0, 500);
   err.jobId = primaryJobId || null;
-  err.repairJobId = (globalThis as any).__lastRunpodRepairJobId || null;
+  err.repairJobId = repairJobId;
   throw err;
 }
 function fallbackCards(text: string) {
