@@ -446,6 +446,8 @@ Q: <question>
 A: <answer>
 ---
 
+After the final '---', output the single token:</final>
+
 Rules:
 - One concept per card
 - Questions are specific and testable
@@ -626,6 +628,7 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
 
     const qaResult = await callLLMResult(qaMessages, OPENAI_MAX_OUTPUT_TOKENS, 0, {
       topP: 0.1,
+      stop: ["</final>"],
     });
 
     if (qaResult.ok && qaResult.content) {

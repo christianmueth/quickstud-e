@@ -143,7 +143,29 @@ export type CallLLMOptions = {
   topP?: number;
   stop?: string[];
   guidedJson?: unknown;
+  responseFormat?: unknown;
+  extraBody?: Record<string, unknown>;
 };
+
+function buildRunpodOpenAICompatChatUrl(endpoint: string): string | null {
+  // RunPod vLLM workers typically expose an OpenAI-compatible server at:
+  // https://api.runpod.ai/v2/<ENDPOINT_ID>/openai/v1/chat/completions
+  try {
+    const url = new URL(endpoint);
+    const parts = url.pathname.split("/").filter(Boolean);
+    // Expect: ["v2", "<id>", "run"] or ["v2", "<id>", "runsync"]
+    if (parts.length >= 2 && parts[0] === "v2") {
+      const endpointId = parts[1];
+      url.pathname = `/v2/${endpointId}/openai/v1/chat/completions`;
+      url.search = "";
+      url.hash = "";
+      return url.toString();
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Calls the RunPod serverless endpoint with DeepSeek vLLM model
@@ -174,12 +196,79 @@ export async function callLLMResult(
 
   const { normalizedPathname } = parseEndpoint(endpoint);
   const isAsyncRun = (normalizedPathname ?? endpoint).replace(/\/+$/, "").endsWith("/run");
+  const useOpenAICompat = process.env.RUNPOD_OPENAI_COMPAT === "1";
 
   try {
     console.log(
       `[aiClient] Calling RunPod ${isAsyncRun ? "/run" : "/runsync"} at ${safeEndpointLabel(endpoint)} (model=${model})`
     );
     console.log(`[aiClient] RunPod key fingerprint: ${apiKeyFp}`);
+
+    if (useOpenAICompat) {
+      const chatUrl = buildRunpodOpenAICompatChatUrl(endpoint);
+      if (!chatUrl) {
+        console.warn("[aiClient] RUNPOD_OPENAI_COMPAT=1 but could not derive OpenAI-compatible URL from RUNPOD_ENDPOINT; falling back");
+      } else {
+        console.log(`[aiClient] Using OpenAI-compatible endpoint: ${safeEndpointLabel(chatUrl)}`);
+
+        // vLLM OpenAI-compatible: allow structured output via response_format / json_schema.
+        const responseFormat =
+          options?.responseFormat ??
+          (options?.guidedJson
+            ? {
+                type: "json_schema",
+                json_schema: {
+                  name: "flashcards",
+                  schema: options.guidedJson,
+                },
+              }
+            : undefined);
+
+        const extraBody: Record<string, unknown> = {
+          ...(options?.extraBody || {}),
+        };
+
+        // Some servers accept guided decoding controls only via an extra body.
+        if (options?.guidedJson != null && extraBody.guided_json == null) extraBody.guided_json = options.guidedJson;
+        if (process.env.RUNPOD_GUIDED_DECODING_BACKEND && extraBody.guided_decoding_backend == null) {
+          extraBody.guided_decoding_backend = process.env.RUNPOD_GUIDED_DECODING_BACKEND;
+        }
+
+        const body = JSON.stringify({
+          model,
+          messages,
+          max_tokens: maxTokens,
+          temperature,
+          ...(typeof options?.topP === "number" ? { top_p: options.topP } : {}),
+          ...(Array.isArray(options?.stop) && options.stop.length ? { stop: options.stop } : {}),
+          ...(responseFormat ? { response_format: responseFormat } : {}),
+          ...(Object.keys(extraBody).length ? { extra_body: extraBody } : {}),
+        });
+
+        const resp = await fetch(chatUrl, {
+          method: "POST",
+          headers: {
+            Authorization: bearerAuthHeaderValue,
+            "Content-Type": "application/json",
+          },
+          body,
+        });
+
+        if (resp.ok) {
+          const data = await resp.json();
+          const content = extractTextFromRunpodOutput(data);
+          if (!content) return { ok: false, reason: "EMPTY_OUTPUT" };
+          console.log(`[aiClient] Generated ${content.length} characters (openai-compat)`);
+          return { ok: true, content };
+        }
+
+        // If the template doesn't support the OpenAI-compatible server, fall back to /run.
+        const errorText = await resp.text().catch(() => "");
+        console.warn(
+          `[aiClient] OpenAI-compatible call failed (${resp.status}); falling back to /run. Body: ${String(errorText || "").slice(0, 300)}`
+        );
+      }
+    }
 
     const input: any = {
       model: model,
@@ -191,11 +280,19 @@ export async function callLLMResult(
     if (typeof options?.topP === "number") input.top_p = options.topP;
     if (Array.isArray(options?.stop) && options!.stop!.length > 0) input.stop = options!.stop;
 
-    // Some vLLM/OpenAI-compatible servers support JSON-schema/grammar guidance via a `guided_json` field.
+    // Some vLLM servers support JSON-schema/grammar guidance via a `guided_json` field.
     // This is optional and template-dependent; leave it unset unless the caller explicitly passes it.
     // Prefer passing raw JSON (object/array) rather than a stringified schema.
     if (options?.guidedJson != null) {
       input.guided_json = options.guidedJson;
+    }
+
+    if (options?.responseFormat != null) {
+      input.response_format = options.responseFormat;
+    }
+
+    if (options?.extraBody && Object.keys(options.extraBody).length) {
+      input.extra_body = options.extraBody;
     }
 
     const body = JSON.stringify({ input });
