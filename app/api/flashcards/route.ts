@@ -378,24 +378,22 @@ async function transcribeBufferWithOpenAI(buf: Buffer): Promise<string> {
 // -------------------- cards --------------------
 function buildFlashcardPrompt(text: string, count: number) {
   const n = Math.min(Math.max(count, 5), 50);
-  return `You are an expert tutor creating study flashcards. Generate ${n} question-and-answer flashcards from the material below.
+  return `Generate EXACTLY ${n} flashcards from the material.
 
-RULES:
-- Each card has a QUESTION and an ANSWER
-- Questions must be clear, specific, and testable
-- Answers must be concise (1-3 sentences max)
-- Test ONE concept per card
-- Focus on key facts, definitions, and relationships
-- Use simple, direct language
+ABSOLUTE OUTPUT FORMAT (must be valid JSON):
+- Output MUST be a JSON array and NOTHING else.
+- The first non-whitespace character MUST be '[' and the last MUST be ']'.
+- No preface, no explanation, no markdown, no code fences.
 
-GOOD EXAMPLES:
-Q: "What is a qubit?"
-A: "A qubit is the basic unit of quantum information that can exist in superposition of 0 and 1 states simultaneously."
+JSON schema:
+[
+  {"q":"...","a":"..."}
+]
 
-Q: "What causes decoherence in quantum computers?"
-A: "Environmental noise and interference cause quantum computers to lose their quantum properties."
-
-Return ONLY a JSON array: [{"q":"question","a":"answer"},...]
+Rules:
+- One concept per card
+- Questions are specific and testable
+- Answers are concise (1–3 sentences)
 
 Material:
 ${text}`;
@@ -411,12 +409,16 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
   console.log("[Cards] Requesting", count, "cards with max_tokens:", OPENAI_MAX_OUTPUT_TOKENS);
   
   const messages = [
-    { role: "system" as const, content: "You are an expert tutor creating educational flashcards. Return only valid JSON with no additional text." }, 
-    { role: "user" as const, content: buildFlashcardPrompt(source, count) }
+    {
+      role: "system" as const,
+      content:
+        "You generate flashcards. You MUST output ONLY valid JSON. Do not include any analysis, reasoning, or extra text. If you cannot comply, output [].",
+    },
+    { role: "user" as const, content: buildFlashcardPrompt(source, count) },
   ];
 
-  // Lower temperature to reduce non-JSON chatter.
-  const result = await callLLMResult(messages, OPENAI_MAX_OUTPUT_TOKENS, 0.2);
+  // Zero temperature to reduce non-JSON chatter.
+  const result = await callLLMResult(messages, OPENAI_MAX_OUTPUT_TOKENS, 0);
   if (!result.ok) {
     // If the job is stuck in queue, don't silently generate junk cards.
     if (result.reason === "TIMEOUT" && String(result.lastStatus || "").toUpperCase() === "IN_QUEUE") {
@@ -438,11 +440,11 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
     return null;
   }
   
-  const cleanedContent = stripFence(content);
+  let cleanedContent = stripFence(content);
   console.log("[Cards] RunPod returned", cleanedContent.length, "chars of response");
-  
-  try {
-    let jsonText = cleanedContent;
+
+  async function parseCardsFromJsonLike(text: string) {
+    let jsonText = text;
     try {
       JSON.parse(jsonText);
     } catch {
@@ -470,12 +472,44 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
     }
     console.log("[Cards] Successfully parsed", mapped.length, "AI-generated flashcards");
     return mapped;
-  } catch (e) { 
+  }
+
+  // First parse attempt
+  try {
+    const parsed = await parseCardsFromJsonLike(cleanedContent);
+    if (parsed) return parsed;
+  } catch (e) {
     console.error("[Cards] Failed to parse RunPod JSON response:", (e as any)?.message);
     console.error("[Cards] Invalid response content:", cleanedContent.slice(0, 500));
-    console.warn("[Cards] Using fallback cards due to parse error");
-    return null; 
   }
+
+  // One-shot repair attempt: ask the model to convert its own output into JSON-only.
+  try {
+    const repairMessages = [
+      {
+        role: "system" as const,
+        content:
+          "You are a strict JSON formatter. Output ONLY valid JSON. No prose, no markdown, no code fences. The output must be a JSON array of objects with keys q and a.",
+      },
+      {
+        role: "user" as const,
+        content:
+          `Convert the following into a JSON array of EXACTLY ${Math.min(Math.max(count, 5), 50)} flashcards with keys q and a. Output JSON only.\n\nCONTENT:\n${cleanedContent}`,
+      },
+    ];
+
+    const repaired = await callLLMResult(repairMessages, OPENAI_MAX_OUTPUT_TOKENS, 0);
+    if (repaired.ok && repaired.content) {
+      cleanedContent = stripFence(repaired.content);
+      const parsed = await parseCardsFromJsonLike(cleanedContent);
+      if (parsed) return parsed;
+    }
+  } catch (e) {
+    console.warn("[Cards] Repair pass failed:", (e as any)?.message || e);
+  }
+
+  console.warn("[Cards] Using fallback cards due to parse error");
+  return null;
 }
 function fallbackCards(text: string) {
   const chunks = cleanText(text).split(/[.!?]\s+/).slice(0, 20);
