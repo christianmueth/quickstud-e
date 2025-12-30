@@ -494,6 +494,91 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
       }
     : undefined;
 
+  const modelName = process.env.RUNPOD_MODEL || "deepseek-r1";
+  const preferQaForModel = /deepseek.*r1/i.test(modelName) || /\br1\b/i.test(modelName);
+  const n = Math.min(Math.max(count, 5), 50);
+
+  function parseCardsFromQA(text: string) {
+    const normalized = String(text || "").replace(/\r\n/g, "\n");
+    const out: Array<{ question: string; answer: string }> = [];
+
+    // Accept both Q:/A: and Question:/Answer:
+    const re =
+      /(?:^|\n)\s*(?:Q|Question)\s*[:\-]\s*([\s\S]*?)\n\s*(?:A|Answer)\s*[:\-]\s*([\s\S]*?)(?=\n\s*(?:---|\*\*\*|Q\s*[:\-]|Question\s*[:\-])|$)/gi;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(normalized)) && out.length < n) {
+      const q = cleanText(m[1] || "");
+      const a = cleanText(m[2] || "");
+      if (!q || !a) continue;
+      out.push({ question: q.slice(0, 500), answer: a.slice(0, 2000) });
+    }
+
+    return out.length ? out : null;
+  }
+
+  async function runQaPass(remaining: number, already: Array<{ question: string; answer: string }>) {
+    const prefix = already.length
+      ? `\n\nAlready generated (do NOT repeat):\n${already
+          .slice(0, 10)
+          .map((c, i) => `- ${i + 1}. ${c.question}`)
+          .join("\n")}`
+      : "";
+
+    const qaMessages = [
+      {
+        role: "system" as const,
+        content:
+          "You are a flashcard generator. Output ONLY flashcards in the requested Q/A format. No analysis, no reasoning, no extra text.",
+      },
+      { role: "user" as const, content: `${buildFlashcardPromptQA(source, remaining)}${prefix}` },
+    ];
+
+    const qaResult = await callLLMResult(qaMessages, OPENAI_MAX_OUTPUT_TOKENS, 0, {
+      topP: 0.1,
+      stop: ["</final>"],
+    });
+
+    return qaResult;
+  }
+
+  // DeepSeek-R1 (reasoning) often refuses strict JSON. Prefer Q/A blocks first to avoid 3-call JSON->repair->QA loops.
+  if (preferQaForModel) {
+    console.log(`[Cards] Using Q/A primary mode for model=${modelName}`);
+
+    const qa1 = await runQaPass(n, []);
+    if (!qa1.ok) {
+      if (qa1.reason === "TIMEOUT" && String(qa1.lastStatus || "").toUpperCase() === "IN_QUEUE") {
+        const err: any = new Error("RunPod job is still in queue (no capacity). Try again in a minute.");
+        err.code = "RUNPOD_IN_QUEUE";
+        err.jobId = qa1.jobId;
+        err.lastStatus = qa1.lastStatus;
+        throw err;
+      }
+      console.warn("[Cards] Q/A primary call failed; falling back to JSON attempts");
+    } else {
+      const parsed1 = qa1.content ? parseCardsFromQA(qa1.content) : null;
+      const cards: Array<{ question: string; answer: string }> = parsed1 ? [...parsed1] : [];
+      console.log(`[Cards] Q/A primary returned ${qa1.content?.length || 0} chars, parsed ${cards.length}/${n}`);
+
+      if (cards.length > 0 && cards.length < n) {
+        const qa2 = await runQaPass(n - cards.length, cards);
+        if (qa2.ok && qa2.content) {
+          const parsed2 = parseCardsFromQA(qa2.content) || [];
+          console.log(`[Cards] Q/A continuation parsed ${parsed2.length} cards`);
+          cards.push(...parsed2);
+        }
+      }
+
+      const unique = new Map<string, { question: string; answer: string }>();
+      for (const c of cards) unique.set(c.question.toLowerCase(), c);
+      const deduped = Array.from(unique.values()).slice(0, n);
+
+      if (deduped.length >= Math.min(n, Math.max(5, Math.floor(n * 0.8)))) {
+        return deduped;
+      }
+    }
+  }
+
   // Zero temperature to reduce non-JSON chatter.
   const result = await callLLMResult(messages, OPENAI_MAX_OUTPUT_TOKENS, 0, {
     topP: 0.1,
@@ -553,27 +638,6 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
     }
     console.log("[Cards] Successfully parsed", mapped.length, "AI-generated flashcards");
     return mapped;
-  }
-
-  function parseCardsFromQA(text: string) {
-    const n = Math.min(Math.max(count, 5), 50);
-    const normalized = String(text || "").replace(/\r\n/g, "\n");
-    const out: Array<{ question: string; answer: string }> = [];
-
-    // Matches repeated blocks:
-    // Q: ...
-    // A: ...
-    // ---
-    const re = /(?:^|\n)\s*Q\s*[:\-]\s*([\s\S]*?)\n\s*A\s*[:\-]\s*([\s\S]*?)(?=\n\s*(?:---|Q\s*[:\-])|$)/gi;
-    let m: RegExpExecArray | null;
-    while ((m = re.exec(normalized)) && out.length < n) {
-      const q = cleanText(m[1] || "");
-      const a = cleanText(m[2] || "");
-      if (!q || !a) continue;
-      out.push({ question: q.slice(0, 500), answer: a.slice(0, 2000) });
-    }
-
-    return out.length ? out : null;
   }
 
   // First parse attempt
