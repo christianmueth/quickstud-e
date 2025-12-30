@@ -452,6 +452,7 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
   ];
 
   const useGuidedJson = process.env.RUNPOD_GUIDED_JSON === "1";
+  console.log(`[Cards] RUNPOD_GUIDED_JSON=${useGuidedJson ? "1" : "0"}`);
   const guidedJson = useGuidedJson
     ? {
         type: "array",
@@ -489,6 +490,7 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
   }
 
   const content = result.content;
+  const primaryJobId = result.jobId;
   
   if (!content) {
     console.warn("[Cards] Using fallback cards due to API failure");
@@ -558,9 +560,12 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
       guidedJson,
     });
     if (repaired.ok && repaired.content) {
+      const repairJobId = repaired.jobId;
       cleanedContent = stripFence(repaired.content);
       const parsed = await parseCardsFromJsonLike(cleanedContent);
       if (parsed) return parsed;
+      // If parsing still fails, include repair job id for debugging.
+      (globalThis as any).__lastRunpodRepairJobId = repairJobId;
     }
   } catch (e) {
     console.warn("[Cards] Repair pass failed:", (e as any)?.message || e);
@@ -569,6 +574,8 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
   const err: any = new Error("RunPod returned non-JSON output; cannot parse flashcards.");
   err.code = "RUNPOD_BAD_OUTPUT";
   err.preview = String(cleanedContent || "").slice(0, 500);
+  err.jobId = primaryJobId || null;
+  err.repairJobId = (globalThis as any).__lastRunpodRepairJobId || null;
   throw err;
 }
 function fallbackCards(text: string) {
@@ -964,6 +971,8 @@ export async function POST(req: Request) {
               "AI returned an invalid format (expected JSON flashcards). Please retry, or adjust the RunPod template/model to output strict JSON.",
             code: "RUNPOD_BAD_OUTPUT",
             preview: e?.preview || null,
+            jobId: e?.jobId || null,
+            repairJobId: e?.repairJobId || null,
           },
           { status: 502 }
         );

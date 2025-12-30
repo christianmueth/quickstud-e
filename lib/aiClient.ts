@@ -193,9 +193,9 @@ export async function callLLMResult(
 
     // Some vLLM/OpenAI-compatible servers support JSON-schema/grammar guidance via a `guided_json` field.
     // This is optional and template-dependent; leave it unset unless the caller explicitly passes it.
+    // Prefer passing raw JSON (object/array) rather than a stringified schema.
     if (options?.guidedJson != null) {
-      input.guided_json =
-        typeof options.guidedJson === "string" ? options.guidedJson : JSON.stringify(options.guidedJson);
+      input.guided_json = options.guidedJson;
     }
 
     const body = JSON.stringify({ input });
