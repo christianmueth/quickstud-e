@@ -15,7 +15,7 @@ const DEFAULT_CARD_COUNT = 20;
 const STRICT_VIDEO = process.env.STRICT_VIDEO === "1";
 // Cost guardrails
 const DISABLE_AUDIO_UPLOAD = process.env.DISABLE_AUDIO_UPLOAD === "1";
-const OPENAI_MAX_OUTPUT_TOKENS = Number(process.env.OPENAI_MAX_OUTPUT_TOKENS || 3000);
+const OPENAI_MAX_OUTPUT_TOKENS = Number(process.env.OPENAI_MAX_OUTPUT_TOKENS || 1800);
 const MAX_DECKS_PER_DAY = Number(process.env.MAX_DECKS_PER_DAY || 50);
 
 function cleanText(s: string) { return s.replace(/\s+/g, " ").trim(); }
@@ -509,7 +509,7 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
     {
       role: "system" as const,
       content:
-        "You generate flashcards. You MUST output ONLY valid JSON. Do not include any analysis, reasoning, markdown, or extra text. Each item must have non-empty q and a. q must end with '?'. a must directly answer q in 1–3 concise sentences. If you cannot comply, output [].",
+        "You generate flashcards. You MUST output ONLY valid JSON. Do not include any analysis, reasoning, markdown, or extra text. Each item must have non-empty q and a. q must end with '?'. a must directly answer q in 1–2 concise sentences and should be short (aim <= 250 characters). If you cannot comply, output [].",
     },
     { role: "user" as const, content: buildFlashcardPrompt(llmSource, count) },
   ];
@@ -527,8 +527,8 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
             additionalProperties: false,
             required: ["q", "a"],
             properties: {
-              q: { type: "string", minLength: 8, maxLength: 500 },
-              a: { type: "string", minLength: 12, maxLength: 2000 },
+              q: { type: "string", minLength: 8, maxLength: 220 },
+              a: { type: "string", minLength: 12, maxLength: 600 },
             },
           },
         }
@@ -768,7 +768,8 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
       ];
 
       // Keep tokens proportional to requested cards to reduce latency.
-      const maxTokens = Math.min(OPENAI_MAX_OUTPUT_TOKENS, 100 * m + 200);
+      // Aiming for short answers: this helps avoid Vercel hard timeouts when the model is slow.
+      const maxTokens = Math.min(OPENAI_MAX_OUTPUT_TOKENS, 70 * m + 160);
 
       const result = await callLLMResult(batchMessages as any, maxTokens, 0, {
         topP: 0.1,
