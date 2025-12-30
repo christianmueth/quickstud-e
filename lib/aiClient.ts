@@ -147,23 +147,26 @@ export type CallLLMOptions = {
   extraBody?: Record<string, unknown>;
 };
 
-function buildRunpodOpenAICompatChatUrl(endpoint: string): string | null {
+function buildRunpodOpenAICompatChatUrls(endpoint: string): string[] {
   // RunPod vLLM workers typically expose an OpenAI-compatible server at:
   // https://api.runpod.ai/v2/<ENDPOINT_ID>/openai/v1/chat/completions
+  // Some deployments use a vllm-prefixed endpoint id:
+  // https://api.runpod.ai/v2/vllm-<ENDPOINT_ID>/openai/v1/chat/completions
   try {
     const url = new URL(endpoint);
     const parts = url.pathname.split("/").filter(Boolean);
     // Expect: ["v2", "<id>", "run"] or ["v2", "<id>", "runsync"]
     if (parts.length >= 2 && parts[0] === "v2") {
       const endpointId = parts[1];
-      url.pathname = `/v2/${endpointId}/openai/v1/chat/completions`;
-      url.search = "";
-      url.hash = "";
-      return url.toString();
+      const base = `${url.protocol}//${url.host}`;
+      return [
+        `${base}/v2/${endpointId}/openai/v1/chat/completions`,
+        `${base}/v2/vllm-${endpointId}/openai/v1/chat/completions`,
+      ];
     }
-    return null;
+    return [];
   } catch {
-    return null;
+    return [];
   }
 }
 
@@ -206,12 +209,14 @@ export async function callLLMResult(
     console.log(`[aiClient] RunPod key fingerprint: ${apiKeyFp}`);
 
     if (useOpenAICompat) {
-      const chatUrl = buildRunpodOpenAICompatChatUrl(endpoint);
-      if (!chatUrl) {
+      const explicitChatUrl = process.env.RUNPOD_OPENAI_COMPAT_CHAT_URL;
+      const chatUrls = explicitChatUrl
+        ? [explicitChatUrl]
+        : buildRunpodOpenAICompatChatUrls(endpoint);
+
+      if (!chatUrls.length) {
         console.warn("[aiClient] RUNPOD_OPENAI_COMPAT=1 but could not derive OpenAI-compatible URL from RUNPOD_ENDPOINT; falling back");
       } else {
-        console.log(`[aiClient] Using OpenAI-compatible endpoint: ${safeEndpointLabel(chatUrl)}`);
-
         // vLLM OpenAI-compatible: allow structured output via response_format / json_schema.
         const responseFormat =
           options?.responseFormat ??
@@ -246,28 +251,41 @@ export async function callLLMResult(
           ...(Object.keys(extraBody).length ? { extra_body: extraBody } : {}),
         });
 
-        const resp = await fetch(chatUrl, {
-          method: "POST",
-          headers: {
-            Authorization: bearerAuthHeaderValue,
-            "Content-Type": "application/json",
-          },
-          body,
-        });
+        for (const chatUrl of chatUrls) {
+          console.log(`[aiClient] Using OpenAI-compatible endpoint: ${safeEndpointLabel(chatUrl)}`);
+          const resp = await fetch(chatUrl, {
+            method: "POST",
+            headers: {
+              Authorization: bearerAuthHeaderValue,
+              "Content-Type": "application/json",
+            },
+            body,
+          });
 
-        if (resp.ok) {
-          const data = await resp.json();
-          const content = extractTextFromRunpodOutput(data);
-          if (!content) return { ok: false, reason: "EMPTY_OUTPUT" };
-          console.log(`[aiClient] Generated ${content.length} characters (openai-compat)`);
-          return { ok: true, content };
+          if (resp.ok) {
+            const data = await resp.json();
+            const content = extractTextFromRunpodOutput(data);
+            if (!content) return { ok: false, reason: "EMPTY_OUTPUT" };
+            console.log(`[aiClient] Generated ${content.length} characters (openai-compat)`);
+            return { ok: true, content };
+          }
+
+          const errorText = await resp.text().catch(() => "");
+          const status = resp.status;
+
+          // 404/405 typically means this compat route doesn't exist for this deployment.
+          if (status === 404 || status === 405) {
+            console.warn(
+              `[aiClient] OpenAI-compatible endpoint not available (${status}) at ${safeEndpointLabel(chatUrl)}; trying next pattern`
+            );
+            continue;
+          }
+
+          console.warn(
+            `[aiClient] OpenAI-compatible call failed (${status}); falling back to /run. Body: ${String(errorText || "").slice(0, 300)}`
+          );
+          break;
         }
-
-        // If the template doesn't support the OpenAI-compatible server, fall back to /run.
-        const errorText = await resp.text().catch(() => "");
-        console.warn(
-          `[aiClient] OpenAI-compatible call failed (${resp.status}); falling back to /run. Body: ${String(errorText || "").slice(0, 300)}`
-        );
       }
     }
 
