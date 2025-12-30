@@ -724,8 +724,16 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
     const wallClockBudgetMs =
       Number.isFinite(envBudgetMs) && envBudgetMs > 0
         ? Math.floor(envBudgetMs)
-        : Math.max(55_000, Math.min(260_000, (maxDuration - 10) * 1000));
-    const batchSize = Math.max(3, Math.min(10, Number(process.env.FLASHCARDS_BATCH_SIZE || 5)));
+        // Default conservatively under ~60s serverless limits.
+        : 55_000;
+
+    // If FLASHCARDS_BATCH_SIZE is not set, default to a single call for typical counts (e.g. 20)
+    // to avoid paying prompt overhead multiple times.
+    const envBatchSizeRaw = process.env.FLASHCARDS_BATCH_SIZE;
+    const batchSize = Math.max(
+      3,
+      Math.min(25, Number(envBatchSizeRaw ? envBatchSizeRaw : String(n)) || n)
+    );
     const cards: Array<{ question: string; answer: string }> = [];
 
     while (cards.length < n) {
@@ -741,7 +749,12 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
       const remainingBudgetMs = wallClockBudgetMs - (Date.now() - startedAt);
       // Ensure we never start a call that cannot complete before our own budget expires.
       // This avoids Vercel killing the function without a structured error response.
-      const perCallTimeoutMs = Math.max(8_000, Math.min(35_000, remainingBudgetMs - 1_500));
+      const perCallTimeoutMs = Math.max(8_000, Math.min(50_000, remainingBudgetMs - 1_500));
+      if (perCallTimeoutMs < 8_000) {
+        const err: any = new Error("AI generation took too long. Try fewer cards or retry.");
+        err.code = "RUNPOD_TIMEOUT";
+        throw err;
+      }
       const avoid = cards.length
         ? `\n\nAlready generated (do NOT repeat these questions):\n${cards
             .slice(0, 12)
