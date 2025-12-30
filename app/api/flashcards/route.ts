@@ -499,7 +499,7 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
           additionalProperties: false,
           required: ["q", "a"],
           properties: {
-            q: { type: "string", minLength: 8, maxLength: 500, pattern: ".*\\?$" },
+            q: { type: "string", minLength: 8, maxLength: 500 },
             a: { type: "string", minLength: 12, maxLength: 2000 },
           },
         },
@@ -706,7 +706,12 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
         question: typeof c?.q === "string" ? c.q : typeof c?.question === "string" ? c.question : "",
         answer: typeof c?.a === "string" ? c.a : typeof c?.answer === "string" ? c.answer : "",
       }))
-      .filter((c) => c.question && c.answer)
+      .map((c) => ({ question: cleanText(c.question), answer: cleanText(c.answer) }))
+      .map((c) => ({
+        question: c.question ? (c.question.endsWith("?") ? c.question : `${c.question}?`) : "",
+        answer: c.answer,
+      }))
+      .filter((c) => c.question.length >= 8 && c.answer.length >= 12)
       .map((c) => ({ question: c.question.slice(0, 500), answer: c.answer.slice(0, 2000) }));
     if (mapped.length === 0) {
       console.warn("[Cards] RunPod returned empty card array, using fallback");
