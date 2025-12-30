@@ -155,6 +155,7 @@ export type CallLLMOptions = {
   guidedJson?: unknown;
   responseFormat?: unknown;
   extraBody?: Record<string, unknown>;
+  timeoutMs?: number;
 };
 
 let cachedOpenAICompatModelId: string | null = null;
@@ -236,7 +237,11 @@ export async function callLLMResult(
   const isAsyncRun = (normalizedPathname ?? endpoint).replace(/\/+$/, "").endsWith("/run");
   const wantsStructuredOutput = options?.responseFormat != null || options?.guidedJson != null;
   const useOpenAICompat = process.env.RUNPOD_OPENAI_COMPAT === "1" || wantsStructuredOutput;
-  const openAICompatTimeoutMs = Number(process.env.RUNPOD_OPENAI_COMPAT_TIMEOUT_MS || 45_000);
+  const defaultOpenAICompatTimeoutMs = Number(process.env.RUNPOD_OPENAI_COMPAT_TIMEOUT_MS || 45_000);
+  const openAICompatTimeoutMs =
+    typeof options?.timeoutMs === "number" && Number.isFinite(options.timeoutMs)
+      ? Math.max(1_000, Math.min(defaultOpenAICompatTimeoutMs, Math.floor(options.timeoutMs)))
+      : defaultOpenAICompatTimeoutMs;
 
   try {
     console.log(

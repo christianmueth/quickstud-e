@@ -6,7 +6,7 @@ import { callLLMResult } from "@/lib/aiClient";
 
 export const runtime = "nodejs";         // node runtime to allow larger bodies locally
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 const MODEL = "gpt-4o-mini";
 const MAX_SOURCE_CHARS = 20_000;
@@ -717,10 +717,14 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
     }
   }
 
-  // Guided JSON path: generate in batches to avoid Vercel 60s runtime timeouts.
+  // Guided JSON path: generate in batches and enforce timeouts to avoid platform runtime timeouts.
   if (useGuidedJson) {
     const startedAt = Date.now();
-    const wallClockBudgetMs = 52_000;
+    const envBudgetMs = Number(process.env.FLASHCARDS_WALLCLOCK_BUDGET_MS || "");
+    const wallClockBudgetMs =
+      Number.isFinite(envBudgetMs) && envBudgetMs > 0
+        ? Math.floor(envBudgetMs)
+        : Math.max(55_000, Math.min(260_000, (maxDuration - 10) * 1000));
     const batchSize = Math.max(3, Math.min(10, Number(process.env.FLASHCARDS_BATCH_SIZE || 5)));
     const cards: Array<{ question: string; answer: string }> = [];
 
@@ -733,6 +737,11 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
 
       const remaining = n - cards.length;
       const m = Math.min(batchSize, remaining);
+
+      const remainingBudgetMs = wallClockBudgetMs - (Date.now() - startedAt);
+      // Ensure we never start a call that cannot complete before our own budget expires.
+      // This avoids Vercel killing the function without a structured error response.
+      const perCallTimeoutMs = Math.max(8_000, Math.min(35_000, remainingBudgetMs - 1_500));
       const avoid = cards.length
         ? `\n\nAlready generated (do NOT repeat these questions):\n${cards
             .slice(0, 12)
@@ -751,6 +760,7 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
       const result = await callLLMResult(batchMessages as any, maxTokens, 0, {
         topP: 0.1,
         guidedJson: makeGuidedJson(m),
+        timeoutMs: perCallTimeoutMs,
       });
 
       if (!result.ok) {
