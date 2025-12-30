@@ -482,7 +482,7 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
     {
       role: "system" as const,
       content:
-        "You generate flashcards. You MUST output ONLY valid JSON. Do not include any analysis, reasoning, or extra text. If you cannot comply, output [].",
+        "You generate flashcards. You MUST output ONLY valid JSON. Do not include any analysis, reasoning, markdown, or extra text. Each item must have non-empty q and a. q must end with '?'. a must directly answer q in 1–3 concise sentences. If you cannot comply, output [].",
     },
     { role: "user" as const, content: buildFlashcardPrompt(source, count) },
   ];
@@ -499,8 +499,8 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
           additionalProperties: false,
           required: ["q", "a"],
           properties: {
-            q: { type: "string" },
-            a: { type: "string" },
+            q: { type: "string", minLength: 8, maxLength: 500, pattern: ".*\\?$" },
+            a: { type: "string", minLength: 12, maxLength: 2000 },
           },
         },
       }
@@ -1136,12 +1136,37 @@ export async function POST(req: Request) {
       } catch {}
     }
 
-    // 5) fallback (always produce something)
+    // If the user provided an input but we couldn't extract any text, fail loudly.
+    // Generating a "generic" deck here leads to low-quality, repetitive cards.
+    const providedNonTitleInput =
+      !!String(form.get("source") || "").trim() ||
+      !!urlStr ||
+      !!file ||
+      !!video ||
+      !!audioFile ||
+      !!subtitle ||
+      !!videoUrl ||
+      !!docUrl;
+
     let title = formTitle;
-    if (!source) {
-      const hint = formTitle || docName || urlStr || "untitled";
-      source = `Topic: ${hint}. No content was extracted, so create generic study prompts about the topic.`;
-      origin = "unknown";
+    if (!source && providedNonTitleInput) {
+      return NextResponse.json(
+        {
+          error:
+            "We couldn't extract readable text from what you provided. Try pasting text directly, using a text-based PDF (not scanned images), or providing a different URL/video with captions.",
+          code: "NO_TEXT_EXTRACTED",
+          inputs: {
+            hasSource: !!String(form.get("source") || "").trim(),
+            hasUrl: !!urlStr,
+            hasFile: !!file,
+            hasDocUrl: !!docUrl,
+            hasVideo: !!video || !!videoUrl,
+            hasSubtitle: !!subtitle,
+            hasAudio: !!audioFile,
+          },
+        },
+        { status: 400 }
+      );
     }
     if (!title) {
       if (docName) title = docName.replace(/\.(pdf|pptx)$/i, "");
