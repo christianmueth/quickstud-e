@@ -139,6 +139,12 @@ export type CallLLMResult =
       message?: string;
     };
 
+export type CallLLMOptions = {
+  topP?: number;
+  stop?: string[];
+  guidedJson?: unknown;
+};
+
 /**
  * Calls the RunPod serverless endpoint with DeepSeek vLLM model
  * @param messages - Array of chat messages in OpenAI format
@@ -148,7 +154,8 @@ export type CallLLMResult =
 export async function callLLMResult(
   messages: Message[],
   maxTokens = 4000,
-  temperature = 0.7
+  temperature = 0.7,
+  options?: CallLLMOptions
 ): Promise<CallLLMResult> {
   const endpoint = process.env.RUNPOD_ENDPOINT;
   const apiKey = process.env.RUNPOD_API_KEY;
@@ -174,14 +181,24 @@ export async function callLLMResult(
     );
     console.log(`[aiClient] RunPod key fingerprint: ${apiKeyFp}`);
 
-    const body = JSON.stringify({
-      input: {
-        model: model,
-        messages: messages,
-        max_tokens: maxTokens,
-        temperature,
-      },
-    });
+    const input: any = {
+      model: model,
+      messages: messages,
+      max_tokens: maxTokens,
+      temperature,
+    };
+
+    if (typeof options?.topP === "number") input.top_p = options.topP;
+    if (Array.isArray(options?.stop) && options!.stop!.length > 0) input.stop = options!.stop;
+
+    // Some vLLM/OpenAI-compatible servers support JSON-schema/grammar guidance via a `guided_json` field.
+    // This is optional and template-dependent; leave it unset unless the caller explicitly passes it.
+    if (options?.guidedJson != null) {
+      input.guided_json =
+        typeof options.guidedJson === "string" ? options.guidedJson : JSON.stringify(options.guidedJson);
+    }
+
+    const body = JSON.stringify({ input });
 
     const doPost = async (authorizationValue: string) =>
       fetch(endpoint, {

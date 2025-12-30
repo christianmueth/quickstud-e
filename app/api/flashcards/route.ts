@@ -36,10 +36,44 @@ function guessKindFromNameType(name?: string, type?: string): "pdf" | "pptx" | "
 const stripFence = (s: string) => s.replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/\s*```$/i, "").trim();
 
 function extractFirstJsonArray(s: string): string | null {
-  const first = s.indexOf("[");
-  const last = s.lastIndexOf("]");
-  if (first === -1 || last === -1 || last <= first) return null;
-  return s.slice(first, last + 1);
+  const start = s.indexOf("[");
+  if (start === -1) return null;
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let i = start; i < s.length; i++) {
+    const ch = s[i];
+
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (ch === "\\") {
+        escaped = true;
+        continue;
+      }
+      if (ch === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (ch === '"') {
+      inString = true;
+      continue;
+    }
+
+    if (ch === "[") depth++;
+    if (ch === "]") {
+      depth--;
+      if (depth === 0) return s.slice(start, i + 1);
+    }
+  }
+
+  return null;
 }
 
 async function extractFromYouTubeStrict(u: URL): Promise<{ title: string; text: string }> {
@@ -417,8 +451,29 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
     { role: "user" as const, content: buildFlashcardPrompt(source, count) },
   ];
 
+  const useGuidedJson = process.env.RUNPOD_GUIDED_JSON === "1";
+  const guidedJson = useGuidedJson
+    ? {
+        type: "array",
+        minItems: Math.min(Math.max(count, 5), 50),
+        maxItems: Math.min(Math.max(count, 5), 50),
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["q", "a"],
+          properties: {
+            q: { type: "string" },
+            a: { type: "string" },
+          },
+        },
+      }
+    : undefined;
+
   // Zero temperature to reduce non-JSON chatter.
-  const result = await callLLMResult(messages, OPENAI_MAX_OUTPUT_TOKENS, 0);
+  const result = await callLLMResult(messages, OPENAI_MAX_OUTPUT_TOKENS, 0, {
+    topP: 0.1,
+    guidedJson,
+  });
   if (!result.ok) {
     // If the job is stuck in queue, don't silently generate junk cards.
     if (result.reason === "TIMEOUT" && String(result.lastStatus || "").toUpperCase() === "IN_QUEUE") {
@@ -498,7 +553,10 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
       },
     ];
 
-    const repaired = await callLLMResult(repairMessages, OPENAI_MAX_OUTPUT_TOKENS, 0);
+    const repaired = await callLLMResult(repairMessages, OPENAI_MAX_OUTPUT_TOKENS, 0, {
+      topP: 0.1,
+      guidedJson,
+    });
     if (repaired.ok && repaired.content) {
       cleanedContent = stripFence(repaired.content);
       const parsed = await parseCardsFromJsonLike(cleanedContent);
@@ -508,8 +566,10 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
     console.warn("[Cards] Repair pass failed:", (e as any)?.message || e);
   }
 
-  console.warn("[Cards] Using fallback cards due to parse error");
-  return null;
+  const err: any = new Error("RunPod returned non-JSON output; cannot parse flashcards.");
+  err.code = "RUNPOD_BAD_OUTPUT";
+  err.preview = String(cleanedContent || "").slice(0, 500);
+  throw err;
 }
 function fallbackCards(text: string) {
   const chunks = cleanText(text).split(/[.!?]\s+/).slice(0, 20);
@@ -894,6 +954,18 @@ export async function POST(req: Request) {
             lastStatus: e?.lastStatus || null,
           },
           { status: 503 }
+        );
+      }
+
+      if (e?.code === "RUNPOD_BAD_OUTPUT") {
+        return NextResponse.json(
+          {
+            error:
+              "AI returned an invalid format (expected JSON flashcards). Please retry, or adjust the RunPod template/model to output strict JSON.",
+            code: "RUNPOD_BAD_OUTPUT",
+            preview: e?.preview || null,
+          },
+          { status: 502 }
         );
       }
       throw e;
