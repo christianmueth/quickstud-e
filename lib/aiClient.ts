@@ -236,7 +236,10 @@ export async function callLLMResult(
   const { normalizedPathname } = parseEndpoint(endpoint);
   const isAsyncRun = (normalizedPathname ?? endpoint).replace(/\/+$/, "").endsWith("/run");
   const wantsStructuredOutput = options?.responseFormat != null || options?.guidedJson != null;
-  const useOpenAICompat = process.env.RUNPOD_OPENAI_COMPAT === "1" || wantsStructuredOutput;
+  const useOpenAICompat =
+    process.env.RUNPOD_OPENAI_COMPAT === "1" ||
+    process.env.RUNPOD_GUIDED_JSON === "1" ||
+    wantsStructuredOutput;
   const defaultOpenAICompatTimeoutMs = Number(process.env.RUNPOD_OPENAI_COMPAT_TIMEOUT_MS || 45_000);
   const openAICompatTimeoutMs =
     typeof options?.timeoutMs === "number" && Number.isFinite(options.timeoutMs)

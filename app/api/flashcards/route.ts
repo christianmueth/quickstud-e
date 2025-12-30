@@ -15,8 +15,11 @@ const DEFAULT_CARD_COUNT = 20;
 const STRICT_VIDEO = process.env.STRICT_VIDEO === "1";
 // Cost guardrails
 const DISABLE_AUDIO_UPLOAD = process.env.DISABLE_AUDIO_UPLOAD === "1";
-const OPENAI_MAX_OUTPUT_TOKENS = Number(process.env.OPENAI_MAX_OUTPUT_TOKENS || 1800);
+const OPENAI_MAX_OUTPUT_TOKENS = Number(process.env.OPENAI_MAX_OUTPUT_TOKENS || 1200);
 const MAX_DECKS_PER_DAY = Number(process.env.MAX_DECKS_PER_DAY || 50);
+
+const MAX_Q_CHARS = Number(process.env.FLASHCARDS_MAX_Q_CHARS || 140);
+const MAX_A_CHARS = Number(process.env.FLASHCARDS_MAX_A_CHARS || 220);
 
 function cleanText(s: string) { return s.replace(/\s+/g, " ").trim(); }
 function truncate(s: string, max = MAX_SOURCE_CHARS) { return s.length > max ? s.slice(0, max) : s; }
@@ -452,7 +455,7 @@ JSON schema:
 Rules:
 - One concept per card
 - Questions are specific and testable
-- Answers are concise (1–3 sentences)
+- Answers are concise (1–2 sentences, max ${MAX_A_CHARS} characters)
 
 Material:
 ${text}`;
@@ -488,7 +491,7 @@ Now generate the REAL ${n} flashcards (no placeholders).
 Rules:
 - One concept per card
 - Questions are specific and testable
-- Answers are concise (1–3 sentences)
+- Answers are concise (1–2 sentences, max ${MAX_A_CHARS} characters)
 
 Material:
 ${text}`;
@@ -509,7 +512,7 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
     {
       role: "system" as const,
       content:
-        "You generate flashcards. You MUST output ONLY valid JSON. Do not include any analysis, reasoning, markdown, or extra text. Each item must have non-empty q and a. q must end with '?'. a must directly answer q in 1–2 concise sentences and should be short (aim <= 250 characters). If you cannot comply, output [].",
+        `You generate flashcards. You MUST output ONLY valid JSON. Do not include any analysis, reasoning, markdown, or extra text. Each item must have non-empty q and a. q must end with '?'. q must be <= ${MAX_Q_CHARS} characters. a must directly answer q in 1–2 concise sentences and must be <= ${MAX_A_CHARS} characters. If you cannot comply, output [].`,
     },
     { role: "user" as const, content: buildFlashcardPrompt(llmSource, count) },
   ];
@@ -527,8 +530,8 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
             additionalProperties: false,
             required: ["q", "a"],
             properties: {
-              q: { type: "string", minLength: 8, maxLength: 220 },
-              a: { type: "string", minLength: 12, maxLength: 600 },
+              q: { type: "string", minLength: 8, maxLength: Math.max(40, MAX_Q_CHARS) },
+              a: { type: "string", minLength: 12, maxLength: Math.max(80, MAX_A_CHARS) },
             },
           },
         }
@@ -567,7 +570,7 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
       }))
       .map((c) => ({ question: ensureQuestionMark(c.question), answer: cleanText(c.answer) }))
       .filter((c) => c.question.length >= 8 && c.answer.length >= 12)
-      .map((c) => ({ question: c.question.slice(0, 500), answer: c.answer.slice(0, 2000) }));
+      .map((c) => ({ question: c.question.slice(0, MAX_Q_CHARS), answer: c.answer.slice(0, MAX_A_CHARS) }));
 
     return mapped.length ? mapped : null;
   }
@@ -593,7 +596,7 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
     const flush = () => {
       const q = cleanText(currentQ);
       const a = cleanText(currentA);
-      if (q && a) out.push({ question: q.slice(0, 500), answer: a.slice(0, 2000) });
+      if (q && a) out.push({ question: q.slice(0, MAX_Q_CHARS), answer: a.slice(0, MAX_A_CHARS) });
       currentQ = "";
       currentA = "";
       mode = "none";
@@ -658,18 +661,16 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
     ];
 
     const qaResult = await callLLMResult(qaMessages, OPENAI_MAX_OUTPUT_TOKENS, 0, {
-      topP: 0.1,
+      topP: 1,
       stop: ["</final>"],
     });
 
     return qaResult;
   }
 
-  // DeepSeek-R1 (reasoning) often refuses strict JSON.
-  // However, when RUNPOD_GUIDED_JSON=1 we route through the OpenAI-compatible vLLM endpoint
-  // with response_format=json_schema, which reliably produces parseable JSON.
-  // So only use Q/A-primary when guided JSON is NOT enabled.
-  if (preferQaForModel && !useGuidedJson) {
+  // Fast path: for DeepSeek-R1, prefer Q/A blocks first (fast + easy to parse).
+  // If parsing fails, fall back to guided JSON / strict JSON.
+  if (preferQaForModel) {
     console.log(`[Cards] Using Q/A primary mode for model=${modelName}`);
 
     const qa1 = await runQaPass(n, []);
@@ -708,12 +709,7 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
         return deduped;
       }
 
-      // For R1: if it still won't emit Q/A blocks, do not fall back to JSON (it also refuses JSON).
-      const err: any = new Error("RunPod returned output that could not be parsed into flashcards.");
-      err.code = "RUNPOD_BAD_OUTPUT";
-      err.preview = preview || null;
-      err.jobId = qa1.jobId || null;
-      throw err;
+      console.warn("[Cards] Q/A primary did not yield enough cards; falling back to JSON modes");
     }
   }
 
@@ -768,11 +764,11 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
       ];
 
       // Keep tokens proportional to requested cards to reduce latency.
-      // Aiming for short answers: this helps avoid Vercel hard timeouts when the model is slow.
-      const maxTokens = Math.min(OPENAI_MAX_OUTPUT_TOKENS, 70 * m + 160);
+      // Short answers: 20 cards should typically fit in ~800–1200 tokens.
+      const maxTokens = Math.min(OPENAI_MAX_OUTPUT_TOKENS, 45 * m + 120);
 
       const result = await callLLMResult(batchMessages as any, maxTokens, 0, {
-        topP: 0.1,
+        topP: 1,
         guidedJson: makeGuidedJson(m),
         timeoutMs: perCallTimeoutMs,
       });
@@ -820,7 +816,7 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
   // Non-guided path: single call + parse/repair.
   // Zero temperature to reduce non-JSON chatter.
   const result = await callLLMResult(messages, OPENAI_MAX_OUTPUT_TOKENS, 0, {
-    topP: 0.1,
+    topP: 1,
     guidedJson: undefined,
   });
   if (!result.ok) {
@@ -877,7 +873,7 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
     ];
 
     const repaired = await callLLMResult(repairMessages, OPENAI_MAX_OUTPUT_TOKENS, 0, {
-      topP: 0.1,
+      topP: 1,
       guidedJson: undefined,
     });
     if (repaired.ok && repaired.content) {
@@ -902,7 +898,7 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
     ];
 
     const qaResult = await callLLMResult(qaMessages, OPENAI_MAX_OUTPUT_TOKENS, 0, {
-      topP: 0.1,
+      topP: 1,
       stop: ["</final>"],
     });
 
