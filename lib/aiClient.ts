@@ -196,7 +196,8 @@ export async function callLLMResult(
 
   const { normalizedPathname } = parseEndpoint(endpoint);
   const isAsyncRun = (normalizedPathname ?? endpoint).replace(/\/+$/, "").endsWith("/run");
-  const useOpenAICompat = process.env.RUNPOD_OPENAI_COMPAT === "1";
+  const wantsStructuredOutput = options?.responseFormat != null || options?.guidedJson != null;
+  const useOpenAICompat = process.env.RUNPOD_OPENAI_COMPAT === "1" || wantsStructuredOutput;
 
   try {
     console.log(
