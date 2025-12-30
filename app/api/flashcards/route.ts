@@ -10,6 +10,7 @@ export const maxDuration = 60;
 
 const MODEL = "gpt-4o-mini";
 const MAX_SOURCE_CHARS = 20_000;
+const MAX_LLM_SOURCE_CHARS = Number(process.env.MAX_LLM_SOURCE_CHARS || 8000);
 const DEFAULT_CARD_COUNT = 20;
 const STRICT_VIDEO = process.env.STRICT_VIDEO === "1";
 // Cost guardrails
@@ -19,6 +20,30 @@ const MAX_DECKS_PER_DAY = Number(process.env.MAX_DECKS_PER_DAY || 50);
 
 function cleanText(s: string) { return s.replace(/\s+/g, " ").trim(); }
 function truncate(s: string, max = MAX_SOURCE_CHARS) { return s.length > max ? s.slice(0, max) : s; }
+
+function shrinkSourceForLLM(text: string, maxChars: number): string {
+  const t = String(text || "").trim();
+  if (!t || t.length <= maxChars) return t;
+
+  // PPTX extraction uses markers like: [Slide 12] ...
+  // For large decks, sending the full 20k chars every batch is slow.
+  // Keep a representative slice per slide until we hit the budget.
+  if (/\[Slide\s+\d+\]/i.test(t)) {
+    const chunks = t.match(/\[Slide\s+\d+\][\s\S]*?(?=\[Slide\s+\d+\]|$)/gi) || [];
+    let out = "";
+    for (const chunk of chunks) {
+      const c = chunk.replace(/\s+/g, " ").trim();
+      if (!c) continue;
+      const clipped = c.length > 320 ? `${c.slice(0, 320)}…` : c;
+      const next = out ? `${out}\n${clipped}` : clipped;
+      if (next.length > maxChars) break;
+      out = next;
+    }
+    if (out) return out;
+  }
+
+  return t.slice(0, maxChars);
+}
 function isYouTubeHostname(host: string) { return ["www.youtube.com", "youtube.com", "youtu.be", "m.youtube.com"].includes(host); }
 function getYouTubeId(u: URL) {
   if (u.hostname.includes("youtu.be")) return u.pathname.slice(1);
@@ -474,8 +499,10 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
     return null;
   }
   
+  const llmSource = shrinkSourceForLLM(source, MAX_LLM_SOURCE_CHARS);
   console.log("[Cards] Generating cards from source text length:", source.length);
-  console.log("[Cards] First 200 chars of source:", source.slice(0, 200));
+  console.log("[Cards] LLM input text length:", llmSource.length);
+  console.log("[Cards] First 200 chars of LLM input:", llmSource.slice(0, 200));
   console.log("[Cards] Requesting", count, "cards with max_tokens:", OPENAI_MAX_OUTPUT_TOKENS);
   
   const messages = [
@@ -484,7 +511,7 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
       content:
         "You generate flashcards. You MUST output ONLY valid JSON. Do not include any analysis, reasoning, markdown, or extra text. Each item must have non-empty q and a. q must end with '?'. a must directly answer q in 1–3 concise sentences. If you cannot comply, output [].",
     },
-    { role: "user" as const, content: buildFlashcardPrompt(source, count) },
+    { role: "user" as const, content: buildFlashcardPrompt(llmSource, count) },
   ];
 
   const useGuidedJson = process.env.RUNPOD_GUIDED_JSON === "1";
@@ -694,7 +721,7 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
   if (useGuidedJson) {
     const startedAt = Date.now();
     const wallClockBudgetMs = 52_000;
-    const batchSize = 8;
+    const batchSize = Math.max(3, Math.min(10, Number(process.env.FLASHCARDS_BATCH_SIZE || 5)));
     const cards: Array<{ question: string; answer: string }> = [];
 
     while (cards.length < n) {
@@ -715,11 +742,11 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
 
       const batchMessages = [
         messages[0],
-        { role: "user" as const, content: `${buildFlashcardPrompt(source, m)}${avoid}` },
+        { role: "user" as const, content: `${buildFlashcardPrompt(llmSource, m)}${avoid}` },
       ];
 
       // Keep tokens proportional to requested cards to reduce latency.
-      const maxTokens = Math.min(OPENAI_MAX_OUTPUT_TOKENS, 120 * m + 240);
+      const maxTokens = Math.min(OPENAI_MAX_OUTPUT_TOKENS, 100 * m + 200);
 
       const result = await callLLMResult(batchMessages as any, maxTokens, 0, {
         topP: 0.1,
