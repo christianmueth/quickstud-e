@@ -440,6 +440,7 @@ function buildFlashcardPromptQA(text: string, count: number) {
 ABSOLUTE OUTPUT FORMAT (NO JSON):
 - Output ONLY flashcards in this repeated block format.
 - No preface, no explanation, no markdown, no code fences, no numbering.
+- The FIRST characters of your response MUST be 'Q:' (no leading whitespace).
 
 Format (repeat EXACTLY ${n} times):
 Q: <question>
@@ -447,6 +448,17 @@ A: <answer>
 ---
 
 After the final '---', output the single token:</final>
+
+Example (format only):
+Q: What is the main topic?
+A: It is about the key ideas in the provided material.
+---
+Q: What is one important detail?
+A: It describes a specific concept mentioned in the material.
+---
+</final>
+
+Now generate the REAL ${n} flashcards (no placeholders).
 
 Rules:
 - One concept per card
@@ -528,9 +540,11 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
       {
         role: "system" as const,
         content:
-          "You are a flashcard generator. Output ONLY flashcards in the requested Q/A format. No analysis, no reasoning, no extra text.",
+          "You are a flashcard generator. Output ONLY flashcards in the requested Q/A format. No analysis, no reasoning, no extra text. If you output anything other than Q/A blocks, it will be rejected.",
       },
       { role: "user" as const, content: `${buildFlashcardPromptQA(source, remaining)}${prefix}` },
+      // Assistant prefill to bias the model to start with the required token.
+      { role: "assistant" as const, content: "Q:" },
     ];
 
     const qaResult = await callLLMResult(qaMessages, OPENAI_MAX_OUTPUT_TOKENS, 0, {
@@ -558,6 +572,7 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
     } else {
       const parsed1 = qa1.content ? parseCardsFromQA(qa1.content) : null;
       const cards: Array<{ question: string; answer: string }> = parsed1 ? [...parsed1] : [];
+      const preview = String(qa1.content || "").slice(0, 300);
       console.log(`[Cards] Q/A primary returned ${qa1.content?.length || 0} chars, parsed ${cards.length}/${n}`);
 
       if (cards.length > 0 && cards.length < n) {
@@ -576,6 +591,13 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
       if (deduped.length >= Math.min(n, Math.max(5, Math.floor(n * 0.8)))) {
         return deduped;
       }
+
+      // For R1: if it still won't emit Q/A blocks, do not fall back to JSON (it also refuses JSON).
+      const err: any = new Error("RunPod returned output that could not be parsed into flashcards.");
+      err.code = "RUNPOD_BAD_OUTPUT";
+      err.preview = preview || null;
+      err.jobId = qa1.jobId || null;
+      throw err;
     }
   }
 
