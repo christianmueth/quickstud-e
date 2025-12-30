@@ -92,6 +92,16 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
+  const controller = new AbortController();
+  const t = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(t);
+  }
+}
+
 function coerceToString(value: unknown): string | null {
   if (typeof value === "string") return value;
   if (value == null) return null;
@@ -226,6 +236,7 @@ export async function callLLMResult(
   const isAsyncRun = (normalizedPathname ?? endpoint).replace(/\/+$/, "").endsWith("/run");
   const wantsStructuredOutput = options?.responseFormat != null || options?.guidedJson != null;
   const useOpenAICompat = process.env.RUNPOD_OPENAI_COMPAT === "1" || wantsStructuredOutput;
+  const openAICompatTimeoutMs = Number(process.env.RUNPOD_OPENAI_COMPAT_TIMEOUT_MS || 45_000);
 
   try {
     console.log(
@@ -295,14 +306,18 @@ export async function callLLMResult(
             });
 
           const doPost = async (body: string) =>
-            fetch(chatUrl, {
+            fetchWithTimeout(
+              chatUrl,
+              {
               method: "POST",
               headers: {
                 Authorization: bearerAuthHeaderValue,
                 "Content-Type": "application/json",
               },
               body,
-            });
+              },
+              openAICompatTimeoutMs
+            );
 
           let resp = await doPost(makeBody({}));
 
@@ -523,6 +538,10 @@ export async function callLLMResult(
     console.log(`[aiClient] Generated ${content.length} characters`);
     return { ok: true, content };
   } catch (err: any) {
+    if (String(err?.name || "") === "AbortError") {
+      console.error("[aiClient] LLM request timed out (AbortError)");
+      return { ok: false, reason: "TIMEOUT", message: "LLM request timed out" };
+    }
     console.error("[aiClient] RunPod error:", err.message);
     return { ok: false, reason: "EXCEPTION", message: String(err?.message || err) };
   }

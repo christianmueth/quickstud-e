@@ -489,26 +489,61 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
 
   const useGuidedJson = process.env.RUNPOD_GUIDED_JSON === "1";
   console.log(`[Cards] RUNPOD_GUIDED_JSON=${useGuidedJson ? "1" : "0"}`);
-  const guidedJson = useGuidedJson
-    ? {
-        type: "array",
-        minItems: Math.min(Math.max(count, 5), 50),
-        maxItems: Math.min(Math.max(count, 5), 50),
-        items: {
-          type: "object",
-          additionalProperties: false,
-          required: ["q", "a"],
-          properties: {
-            q: { type: "string", minLength: 8, maxLength: 500 },
-            a: { type: "string", minLength: 12, maxLength: 2000 },
+  const makeGuidedJson = (n: number) =>
+    useGuidedJson
+      ? {
+          type: "array",
+          minItems: n,
+          maxItems: n,
+          items: {
+            type: "object",
+            additionalProperties: false,
+            required: ["q", "a"],
+            properties: {
+              q: { type: "string", minLength: 8, maxLength: 500 },
+              a: { type: "string", minLength: 12, maxLength: 2000 },
+            },
           },
-        },
-      }
-    : undefined;
+        }
+      : undefined;
 
   const modelName = process.env.RUNPOD_MODEL || "deepseek-r1";
   const preferQaForModel = /deepseek.*r1/i.test(modelName) || /\br1\b/i.test(modelName);
   const n = Math.min(Math.max(count, 5), 50);
+
+  function ensureQuestionMark(q: string) {
+    const qq = cleanText(q || "");
+    if (!qq) return "";
+    return qq.endsWith("?") ? qq : `${qq}?`;
+  }
+
+  async function parseCardsFromJsonLike(text: string) {
+    let jsonText = text;
+    try {
+      JSON.parse(jsonText);
+    } catch {
+      const extracted = extractFirstJsonArray(jsonText);
+      if (extracted) jsonText = extracted;
+    }
+
+    const arr = JSON.parse(jsonText) as Array<{
+      q?: string;
+      a?: string;
+      question?: string;
+      answer?: string;
+    }>;
+
+    const mapped = arr
+      .map((c) => ({
+        question: typeof c?.q === "string" ? c.q : typeof c?.question === "string" ? c.question : "",
+        answer: typeof c?.a === "string" ? c.a : typeof c?.answer === "string" ? c.answer : "",
+      }))
+      .map((c) => ({ question: ensureQuestionMark(c.question), answer: cleanText(c.answer) }))
+      .filter((c) => c.question.length >= 8 && c.answer.length >= 12)
+      .map((c) => ({ question: c.question.slice(0, 500), answer: c.answer.slice(0, 2000) }));
+
+    return mapped.length ? mapped : null;
+  }
 
   function parseCardsFromQA(text: string) {
     const normalized = String(text || "").replace(/\r\n/g, "\n");
@@ -607,7 +642,7 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
   // However, when RUNPOD_GUIDED_JSON=1 we route through the OpenAI-compatible vLLM endpoint
   // with response_format=json_schema, which reliably produces parseable JSON.
   // So only use Q/A-primary when guided JSON is NOT enabled.
-  if (preferQaForModel && !guidedJson) {
+  if (preferQaForModel && !useGuidedJson) {
     console.log(`[Cards] Using Q/A primary mode for model=${modelName}`);
 
     const qa1 = await runQaPass(n, []);
@@ -655,13 +690,89 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
     }
   }
 
+  // Guided JSON path: generate in batches to avoid Vercel 60s runtime timeouts.
+  if (useGuidedJson) {
+    const startedAt = Date.now();
+    const wallClockBudgetMs = 52_000;
+    const batchSize = 8;
+    const cards: Array<{ question: string; answer: string }> = [];
+
+    while (cards.length < n) {
+      if (Date.now() - startedAt > wallClockBudgetMs) {
+        const err: any = new Error("AI generation took too long. Try fewer cards or retry.");
+        err.code = "RUNPOD_TIMEOUT";
+        throw err;
+      }
+
+      const remaining = n - cards.length;
+      const m = Math.min(batchSize, remaining);
+      const avoid = cards.length
+        ? `\n\nAlready generated (do NOT repeat these questions):\n${cards
+            .slice(0, 12)
+            .map((c, i) => `- ${i + 1}. ${c.question}`)
+            .join("\n")}`
+        : "";
+
+      const batchMessages = [
+        messages[0],
+        { role: "user" as const, content: `${buildFlashcardPrompt(source, m)}${avoid}` },
+      ];
+
+      // Keep tokens proportional to requested cards to reduce latency.
+      const maxTokens = Math.min(OPENAI_MAX_OUTPUT_TOKENS, 120 * m + 240);
+
+      const result = await callLLMResult(batchMessages as any, maxTokens, 0, {
+        topP: 0.1,
+        guidedJson: makeGuidedJson(m),
+      });
+
+      if (!result.ok) {
+        if (result.reason === "TIMEOUT" && String(result.lastStatus || "").toUpperCase() === "IN_QUEUE") {
+          const err: any = new Error("RunPod job is still in queue (no capacity). Try again in a minute.");
+          err.code = "RUNPOD_IN_QUEUE";
+          err.jobId = result.jobId;
+          err.lastStatus = result.lastStatus;
+          throw err;
+        }
+        if (result.reason === "TIMEOUT") {
+          const err: any = new Error("AI generation took too long. Try fewer cards or retry.");
+          err.code = "RUNPOD_TIMEOUT";
+          throw err;
+        }
+
+        const err: any = new Error("RunPod request failed.");
+        err.code = "RUNPOD_HTTP_ERROR";
+        err.reason = result.reason;
+        err.httpStatus = result.httpStatus;
+        throw err;
+      }
+
+      const cleaned = stripFence(result.content || "");
+      const parsed = await parseCardsFromJsonLike(cleaned);
+      if (!parsed || parsed.length === 0) {
+        const err: any = new Error("RunPod returned output that could not be parsed into flashcards.");
+        err.code = "RUNPOD_BAD_OUTPUT";
+        err.preview = String(cleaned || "").slice(0, 500);
+        err.jobId = result.jobId || null;
+        throw err;
+      }
+
+      for (const c of parsed) cards.push(c);
+      const unique = new Map<string, { question: string; answer: string }>();
+      for (const c of cards) unique.set(c.question.toLowerCase(), c);
+      cards.splice(0, cards.length, ...Array.from(unique.values()));
+    }
+
+    return cards.slice(0, n);
+  }
+
+  // Non-guided path: single call + parse/repair.
   // Zero temperature to reduce non-JSON chatter.
   const result = await callLLMResult(messages, OPENAI_MAX_OUTPUT_TOKENS, 0, {
     topP: 0.1,
-    guidedJson,
+    guidedJson: undefined,
   });
   if (!result.ok) {
-    // If the job is stuck in queue, don't silently generate junk cards.
     if (result.reason === "TIMEOUT" && String(result.lastStatus || "").toUpperCase() === "IN_QUEUE") {
       const err: any = new Error("RunPod job is still in queue (no capacity). Try again in a minute.");
       err.code = "RUNPOD_IN_QUEUE";
@@ -669,7 +780,11 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
       err.lastStatus = result.lastStatus;
       throw err;
     }
-
+    if (result.reason === "TIMEOUT") {
+      const err: any = new Error("AI generation took too long. Try fewer cards or retry.");
+      err.code = "RUNPOD_TIMEOUT";
+      throw err;
+    }
     console.warn("[Cards] Using fallback cards due to API failure");
     return null;
   }
@@ -684,42 +799,6 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
   
   let cleanedContent = stripFence(content);
   console.log("[Cards] RunPod returned", cleanedContent.length, "chars of response");
-
-  async function parseCardsFromJsonLike(text: string) {
-    let jsonText = text;
-    try {
-      JSON.parse(jsonText);
-    } catch {
-      const extracted = extractFirstJsonArray(jsonText);
-      if (extracted) jsonText = extracted;
-    }
-
-    const arr = JSON.parse(jsonText) as Array<{
-      q?: string;
-      a?: string;
-      question?: string;
-      answer?: string;
-    }>;
-
-    const mapped = arr
-      .map((c) => ({
-        question: typeof c?.q === "string" ? c.q : typeof c?.question === "string" ? c.question : "",
-        answer: typeof c?.a === "string" ? c.a : typeof c?.answer === "string" ? c.answer : "",
-      }))
-      .map((c) => ({ question: cleanText(c.question), answer: cleanText(c.answer) }))
-      .map((c) => ({
-        question: c.question ? (c.question.endsWith("?") ? c.question : `${c.question}?`) : "",
-        answer: c.answer,
-      }))
-      .filter((c) => c.question.length >= 8 && c.answer.length >= 12)
-      .map((c) => ({ question: c.question.slice(0, 500), answer: c.answer.slice(0, 2000) }));
-    if (mapped.length === 0) {
-      console.warn("[Cards] RunPod returned empty card array, using fallback");
-      return null;
-    }
-    console.log("[Cards] Successfully parsed", mapped.length, "AI-generated flashcards");
-    return mapped;
-  }
 
   // First parse attempt
   try {
@@ -748,7 +827,7 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
 
     const repaired = await callLLMResult(repairMessages, OPENAI_MAX_OUTPUT_TOKENS, 0, {
       topP: 0.1,
-      guidedJson,
+      guidedJson: undefined,
     });
     if (repaired.ok && repaired.content) {
       repairJobId = repaired.jobId || null;
@@ -1202,6 +1281,17 @@ export async function POST(req: Request) {
             lastStatus: e?.lastStatus || null,
           },
           { status: 503 }
+        );
+      }
+
+      if (e?.code === "RUNPOD_TIMEOUT") {
+        return NextResponse.json(
+          {
+            error:
+              "AI generation took too long and timed out. Try fewer cards (e.g. 10) or retry shortly.",
+            code: "RUNPOD_TIMEOUT",
+          },
+          { status: 504 }
         );
       }
 
