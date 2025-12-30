@@ -514,17 +514,65 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
     const normalized = String(text || "").replace(/\r\n/g, "\n");
     const out: Array<{ question: string; answer: string }> = [];
 
-    // Accept both Q:/A: and Question:/Answer:
-    const re =
-      /(?:^|\n)\s*(?:Q|Question)\s*[:\-]\s*([\s\S]*?)\n\s*(?:A|Answer)\s*[:\-]\s*([\s\S]*?)(?=\n\s*(?:---|\*\*\*|Q\s*[:\-]|Question\s*[:\-])|$)/gi;
-    let m: RegExpExecArray | null;
-    while ((m = re.exec(normalized)) && out.length < n) {
-      const q = cleanText(m[1] || "");
-      const a = cleanText(m[2] || "");
-      if (!q || !a) continue;
-      out.push({ question: q.slice(0, 500), answer: a.slice(0, 2000) });
+    const lines = normalized
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0 && l !== "</final>");
+
+    const isSep = (l: string) => l === "---" || l === "***";
+    const isQ = (l: string) => /^(?:\d+\s*[).\-]\s*)?(?:Q|Question)\s*[:\-]/i.test(l);
+    const isA = (l: string) => /^(?:\d+\s*[).\-]\s*)?(?:A|Answer)\s*[:\-]/i.test(l);
+    const stripLabel = (l: string) => l.replace(/^(?:\d+\s*[).\-]\s*)?(?:Q|Question|A|Answer)\s*[:\-]\s*/i, "");
+
+    let currentQ = "";
+    let currentA = "";
+    let mode: "none" | "q" | "a" = "none";
+
+    const flush = () => {
+      const q = cleanText(currentQ);
+      const a = cleanText(currentA);
+      if (q && a) out.push({ question: q.slice(0, 500), answer: a.slice(0, 2000) });
+      currentQ = "";
+      currentA = "";
+      mode = "none";
+    };
+
+    for (const line of lines) {
+      if (out.length >= n) break;
+      if (isSep(line)) {
+        flush();
+        continue;
+      }
+
+      // Handle same-line Q and A: "Q: ... A: ..."
+      if (isQ(line) && /\b(?:A|Answer)\s*[:\-]/i.test(line)) {
+        const parts = line.split(/\b(?:A|Answer)\s*[:\-]\s*/i);
+        const qPart = stripLabel(parts[0] || "");
+        const aPart = parts.slice(1).join(" ");
+        currentQ = qPart;
+        currentA = aPart;
+        flush();
+        continue;
+      }
+
+      if (isQ(line)) {
+        if (currentQ || currentA) flush();
+        mode = "q";
+        currentQ += (currentQ ? " " : "") + stripLabel(line);
+        continue;
+      }
+
+      if (isA(line)) {
+        mode = "a";
+        currentA += (currentA ? " " : "") + stripLabel(line);
+        continue;
+      }
+
+      if (mode === "q") currentQ += (currentQ ? " " : "") + line;
+      else if (mode === "a") currentA += (currentA ? " " : "") + line;
     }
 
+    if (out.length < n) flush();
     return out.length ? out : null;
   }
 
@@ -573,6 +621,9 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
       const parsed1 = qa1.content ? parseCardsFromQA(qa1.content) : null;
       const cards: Array<{ question: string; answer: string }> = parsed1 ? [...parsed1] : [];
       const preview = String(qa1.content || "").slice(0, 300);
+      if (cards.length === 0) {
+        console.warn("[Cards] Q/A output preview:", preview);
+      }
       console.log(`[Cards] Q/A primary returned ${qa1.content?.length || 0} chars, parsed ${cards.length}/${n}`);
 
       if (cards.length > 0 && cards.length < n) {
