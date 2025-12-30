@@ -703,13 +703,63 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
 
       const unique = new Map<string, { question: string; answer: string }>();
       for (const c of cards) unique.set(c.question.toLowerCase(), c);
-      const deduped = Array.from(unique.values()).slice(0, n);
+      let deduped = Array.from(unique.values()).slice(0, n);
 
-      if (deduped.length >= Math.min(n, Math.max(5, Math.floor(n * 0.8)))) {
-        return deduped;
+      // If we got close but not exact, do a couple of cheap fill attempts.
+      // This avoids creating decks with 18/20 cards.
+      for (let attempt = 0; attempt < 2 && deduped.length < n; attempt++) {
+        const missing = n - deduped.length;
+        console.log(`[Cards] Q/A fill attempt ${attempt + 1}: missing ${missing}/${n}`);
+
+        const qaFill = await runQaPass(missing, deduped);
+        if (qaFill.ok && qaFill.content) {
+          const parsedFill = parseCardsFromQA(qaFill.content) || [];
+          if (parsedFill.length) {
+            for (const c of parsedFill) deduped.push(c);
+            const u2 = new Map<string, { question: string; answer: string }>();
+            for (const c of deduped) u2.set(c.question.toLowerCase(), c);
+            deduped = Array.from(u2.values()).slice(0, n);
+          }
+        }
       }
 
-      console.warn("[Cards] Q/A primary did not yield enough cards; falling back to JSON modes");
+      // If still short and we have guided JSON available, fill the remainder strictly.
+      if (deduped.length < n && useGuidedJson) {
+        const missing = n - deduped.length;
+        console.log(`[Cards] Falling back to guided JSON to fill remaining ${missing}/${n}`);
+        const avoid = deduped.length
+          ? `\n\nAlready generated (do NOT repeat these questions):\n${deduped
+              .slice(0, 12)
+              .map((c, i) => `- ${i + 1}. ${c.question}`)
+              .join("\n")}`
+          : "";
+
+        const batchMessages = [
+          messages[0],
+          { role: "user" as const, content: `${buildFlashcardPrompt(llmSource, missing)}${avoid}` },
+        ];
+
+        const maxTokens = Math.min(OPENAI_MAX_OUTPUT_TOKENS, 45 * missing + 120);
+        const guided = await callLLMResult(batchMessages as any, maxTokens, 0, {
+          topP: 1,
+          guidedJson: makeGuidedJson(missing),
+        });
+
+        if (guided.ok) {
+          const cleaned = stripFence(guided.content || "");
+          const parsed = await parseCardsFromJsonLike(cleaned);
+          if (parsed && parsed.length) {
+            for (const c of parsed) deduped.push(c);
+            const u3 = new Map<string, { question: string; answer: string }>();
+            for (const c of deduped) u3.set(c.question.toLowerCase(), c);
+            deduped = Array.from(u3.values()).slice(0, n);
+          }
+        }
+      }
+
+      if (deduped.length === n) return deduped;
+
+      console.warn(`[Cards] Could not reach exact card count (${deduped.length}/${n}); falling back to JSON modes`);
     }
   }
 
