@@ -603,8 +603,11 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
     return qaResult;
   }
 
-  // DeepSeek-R1 (reasoning) often refuses strict JSON. Prefer Q/A blocks first to avoid 3-call JSON->repair->QA loops.
-  if (preferQaForModel) {
+  // DeepSeek-R1 (reasoning) often refuses strict JSON.
+  // However, when RUNPOD_GUIDED_JSON=1 we route through the OpenAI-compatible vLLM endpoint
+  // with response_format=json_schema, which reliably produces parseable JSON.
+  // So only use Q/A-primary when guided JSON is NOT enabled.
+  if (preferQaForModel && !guidedJson) {
     console.log(`[Cards] Using Q/A primary mode for model=${modelName}`);
 
     const qa1 = await runQaPass(n, []);

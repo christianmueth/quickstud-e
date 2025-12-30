@@ -147,6 +147,31 @@ export type CallLLMOptions = {
   extraBody?: Record<string, unknown>;
 };
 
+let cachedOpenAICompatModelId: string | null = null;
+let cachedOpenAICompatModelIdAtMs = 0;
+
+async function discoverOpenAICompatModelId(modelsUrl: string, authHeader: string): Promise<string | null> {
+  const now = Date.now();
+  const ttlMs = 10 * 60 * 1000;
+  if (cachedOpenAICompatModelId && now - cachedOpenAICompatModelIdAtMs < ttlMs) return cachedOpenAICompatModelId;
+
+  try {
+    const resp = await fetch(modelsUrl, {
+      method: "GET",
+      headers: { Authorization: authHeader },
+    });
+    if (!resp.ok) return null;
+    const data = (await resp.json()) as any;
+    const id = typeof data?.data?.[0]?.id === "string" ? String(data.data[0].id) : null;
+    if (!id) return null;
+    cachedOpenAICompatModelId = id;
+    cachedOpenAICompatModelIdAtMs = now;
+    return id;
+  } catch {
+    return null;
+  }
+}
+
 function buildRunpodOpenAICompatChatUrls(endpoint: string): string[] {
   // RunPod vLLM workers typically expose an OpenAI-compatible server at:
   // https://api.runpod.ai/v2/<ENDPOINT_ID>/openai/v1/chat/completions
@@ -240,27 +265,46 @@ export async function callLLMResult(
           extraBody.guided_decoding_backend = process.env.RUNPOD_GUIDED_DECODING_BACKEND;
         }
 
-        const body = JSON.stringify({
-          model,
-          messages,
-          max_tokens: maxTokens,
-          temperature,
-          ...(typeof options?.topP === "number" ? { top_p: options.topP } : {}),
-          ...(Array.isArray(options?.stop) && options.stop.length ? { stop: options.stop } : {}),
-          ...(responseFormat ? { response_format: responseFormat } : {}),
-          ...(Object.keys(extraBody).length ? { extra_body: extraBody } : {}),
-        });
-
         for (const chatUrl of chatUrls) {
           console.log(`[aiClient] Using OpenAI-compatible endpoint: ${safeEndpointLabel(chatUrl)}`);
-          const resp = await fetch(chatUrl, {
-            method: "POST",
-            headers: {
-              Authorization: bearerAuthHeaderValue,
-              "Content-Type": "application/json",
-            },
-            body,
-          });
+          const modelsUrl = chatUrl.replace(/\/chat\/completions\/?$/, "/models");
+
+          // vLLM often requires the full model id (e.g. "deepseek-ai/deepseek-r1-distill-qwen-7b").
+          // If RUNPOD_MODEL is a friendly alias (e.g. "deepseek-r1"), try to discover the served model id.
+          let compatModel = process.env.RUNPOD_OPENAI_COMPAT_MODEL || model;
+          const looksLikeFullId = compatModel.includes("/");
+          let discoveredModelId: string | null = null;
+          if (!looksLikeFullId && !process.env.RUNPOD_OPENAI_COMPAT_MODEL) {
+            discoveredModelId = await discoverOpenAICompatModelId(modelsUrl, bearerAuthHeaderValue);
+            if (discoveredModelId) {
+              compatModel = discoveredModelId;
+              console.log(`[aiClient] OpenAI-compat model id discovered: ${compatModel}`);
+            }
+          }
+
+          const makeBody = (override: { model?: string; omitResponseFormat?: boolean }) =>
+            JSON.stringify({
+              model: override.model || compatModel,
+              messages,
+              max_tokens: maxTokens,
+              temperature,
+              ...(typeof options?.topP === "number" ? { top_p: options.topP } : {}),
+              ...(Array.isArray(options?.stop) && options.stop.length ? { stop: options.stop } : {}),
+              ...(!override.omitResponseFormat && responseFormat ? { response_format: responseFormat } : {}),
+              ...(Object.keys(extraBody).length ? { extra_body: extraBody } : {}),
+            });
+
+          const doPost = async (body: string) =>
+            fetch(chatUrl, {
+              method: "POST",
+              headers: {
+                Authorization: bearerAuthHeaderValue,
+                "Content-Type": "application/json",
+              },
+              body,
+            });
+
+          let resp = await doPost(makeBody({}));
 
           if (resp.ok) {
             const data = await resp.json();
@@ -279,6 +323,35 @@ export async function callLLMResult(
               `[aiClient] OpenAI-compatible endpoint not available (${status}) at ${safeEndpointLabel(chatUrl)}; trying next pattern`
             );
             continue;
+          }
+
+          // Retry: if server errors, try switching to discovered model id (if we didn't already),
+          // and/or drop response_format (some deployments error on json_schema even when guided_json works).
+          if ((status === 500 || status === 400) && responseFormat) {
+            if (!discoveredModelId) {
+              const id = await discoverOpenAICompatModelId(modelsUrl, bearerAuthHeaderValue);
+              if (id && id !== compatModel) {
+                console.warn(`[aiClient] Retrying openai-compat with discovered model id after ${status}`);
+                resp = await doPost(makeBody({ model: id }));
+                if (resp.ok) {
+                  const data = await resp.json();
+                  const content = extractTextFromRunpodOutput(data);
+                  if (!content) return { ok: false, reason: "EMPTY_OUTPUT" };
+                  console.log(`[aiClient] Generated ${content.length} characters (openai-compat, retry-model)`);
+                  return { ok: true, content };
+                }
+              }
+            }
+
+            console.warn(`[aiClient] Retrying openai-compat without response_format after ${status}`);
+            resp = await doPost(makeBody({ omitResponseFormat: true }));
+            if (resp.ok) {
+              const data = await resp.json();
+              const content = extractTextFromRunpodOutput(data);
+              if (!content) return { ok: false, reason: "EMPTY_OUTPUT" };
+              console.log(`[aiClient] Generated ${content.length} characters (openai-compat, no-response-format)`);
+              return { ok: true, content };
+            }
           }
 
           console.warn(
