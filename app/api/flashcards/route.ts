@@ -166,6 +166,44 @@ async function fetchYouTubeTranscriptViaYtdlCore(id: string): Promise<string | n
   }
 }
 
+async function downloadYouTubeAudioBufferViaYtdlCore(
+  id: string,
+  maxBytes: number
+): Promise<{ buf: Buffer; filename: string; contentType: string }> {
+  const ytdl = (await import("ytdl-core")) as any;
+  const ytdlDefault = ytdl.default ?? ytdl;
+
+  const info = await (ytdlDefault.getInfo ? ytdlDefault.getInfo(id) : ytdl.getInfo(id));
+  const format = ytdlDefault.chooseFormat
+    ? ytdlDefault.chooseFormat(info.formats, { quality: "highestaudio", filter: "audioonly" })
+    : (ytdl.chooseFormat(info.formats, { quality: "highestaudio", filter: "audioonly" }) as any);
+
+  const mimeTypeRaw: string | undefined = format?.mimeType;
+  const contentType = (mimeTypeRaw ? String(mimeTypeRaw).split(";")[0] : "audio/webm") || "audio/webm";
+  const ext = contentType.includes("mp4") || contentType.includes("m4a") ? "m4a" : "webm";
+  const filename = `youtube-${id}.${ext}`;
+
+  const stream = ytdlDefault(id, { quality: format.itag });
+
+  const chunks: Buffer[] = [];
+  let total = 0;
+
+  await new Promise<void>((resolve, reject) => {
+    stream.on("data", (chunk: Buffer) => {
+      total += chunk.length;
+      if (total > maxBytes) {
+        stream.destroy(new Error(`YouTube audio too large (> ${maxBytes} bytes)`));
+        return;
+      }
+      chunks.push(chunk);
+    });
+    stream.on("end", () => resolve());
+    stream.on("error", (e: any) => reject(e));
+  });
+
+  return { buf: Buffer.concat(chunks), filename, contentType };
+}
+
 async function extractFromYouTubeStrict(u: URL): Promise<{ title: string; text: string }> {
   const id = getYouTubeId(u);
   if (!id) throw new Error("Could not parse YouTube video ID.");
@@ -1473,6 +1511,23 @@ export async function POST(req: Request) {
                 if (text) {
                   source = truncate(text);
                   origin = "youtube";
+                }
+
+                // If captions are unavailable, fall back to audio download + RunPod ASR.
+                // This avoids requiring yt-dlp/ffmpeg on Vercel.
+                if (!source && !DISABLE_AUDIO_UPLOAD) {
+                  const hasRunpodAsr = !!(process.env.RUNPOD_ASR_ENDPOINT || process.env.RUNPOD_ASR_ENDPOINT_ID);
+                  if (hasRunpodAsr) {
+                    console.log("[YouTube] Captions unavailable; downloading audio for ASR:", id);
+                    // Keep this conservative to avoid blowing serverless memory/time.
+                    const maxBytes = Number(process.env.YT_AUDIO_MAX_BYTES || 35_000_000);
+                    const audio = await downloadYouTubeAudioBufferViaYtdlCore(id, maxBytes);
+                    const asrText = await transcribeBuffer(audio.buf, audio.filename, audio.contentType);
+                    if (asrText) {
+                      source = truncate(asrText);
+                      origin = "youtube";
+                    }
+                  }
                 }
               }
             } catch {
