@@ -912,8 +912,8 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
     const wallClockBudgetMs =
       Number.isFinite(envBudgetMs) && envBudgetMs > 0
         ? Math.floor(envBudgetMs)
-        // Default conservatively under ~60s serverless limits.
-        : 55_000;
+        // Default to 120s; this route sets maxDuration=300.
+        : 120_000;
 
     // If FLASHCARDS_BATCH_SIZE is not set, default to a single call for typical counts (e.g. 20)
     // to avoid paying prompt overhead multiple times.

@@ -240,7 +240,9 @@ export async function callLLMResult(
     process.env.RUNPOD_OPENAI_COMPAT === "1" ||
     process.env.RUNPOD_GUIDED_JSON === "1" ||
     wantsStructuredOutput;
-  const defaultOpenAICompatTimeoutMs = Number(process.env.RUNPOD_OPENAI_COMPAT_TIMEOUT_MS || 45_000);
+  // OpenAI-compat endpoints can be slower on cold starts and during queueing.
+  // Keep this configurable; default higher than 45s to avoid premature timeouts.
+  const defaultOpenAICompatTimeoutMs = Number(process.env.RUNPOD_OPENAI_COMPAT_TIMEOUT_MS || 90_000);
   const openAICompatTimeoutMs =
     typeof options?.timeoutMs === "number" && Number.isFinite(options.timeoutMs)
       ? Math.max(1_000, Math.min(defaultOpenAICompatTimeoutMs, Math.floor(options.timeoutMs)))
@@ -461,8 +463,8 @@ export async function callLLMResult(
 
       const statusUrl = buildRunpodStatusUrl(endpoint, String(jobId));
       const startedAt = Date.now();
-      const timeoutMs = 55_000;
-      const intervalMs = 1500;
+      const timeoutMs = Math.max(15_000, Number(process.env.RUNPOD_ASYNC_TIMEOUT_MS || 120_000));
+      const intervalMs = Math.max(250, Number(process.env.RUNPOD_ASYNC_POLL_INTERVAL_MS || 1500));
       let pollCount = 0;
       let lastStatus = "";
 
