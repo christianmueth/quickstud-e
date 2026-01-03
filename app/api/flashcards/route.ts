@@ -1201,6 +1201,7 @@ export async function POST(req: Request) {
   let audioFile = form.get("audio") as File | null;
   const videoUrl = getLast("videoUrl").trim();
   const videoName = getLast("videoName").trim();
+  const audioUrl = getLast("audioUrl").trim();
 
     // Some browsers/frameworks can submit an empty File placeholder.
     // Treat those as not provided so we don't accidentally trigger video/audio paths.
@@ -1519,6 +1520,38 @@ export async function POST(req: Request) {
       }
     }
 
+    // 0c) Audio URL (preferred for CLI / large files): transcribe via RunPod ASR directly.
+    if (!source && audioUrl) {
+      const hasRunpodAsr = !!(process.env.RUNPOD_ASR_ENDPOINT || process.env.RUNPOD_ASR_ENDPOINT_ID);
+      if (!hasRunpodAsr) {
+        return NextResponse.json(
+          {
+            error:
+              "RunPod ASR is not configured. Set RUNPOD_ASR_ENDPOINT(_ID) and RUNPOD_ASR_API_KEY in Vercel env vars.",
+            code: "RUNPOD_ASR_NOT_CONFIGURED",
+          },
+          { status: 500 }
+        );
+      }
+      const asr = await transcribeAudioUrlWithRunpod(audioUrl);
+      if (!asr.ok) {
+        return NextResponse.json(
+          {
+            error: `RunPod ASR failed: ${asr.message} [${asr.code}]`,
+            code: "ASR_FAIL",
+            status: asr.status || null,
+            raw: asr.raw || null,
+          },
+          { status: asr.code === "TIMEOUT" ? 504 : 502 }
+        );
+      }
+      const t = cleanText(asr.transcript || "");
+      if (t) {
+        source = truncate(t);
+        origin = "video";
+      }
+    }
+
     // 1) Raw text
     if (!source && form.get("source")) { source = truncate(cleanText(String(form.get("source")))); origin = "text"; }
 
@@ -1718,7 +1751,8 @@ export async function POST(req: Request) {
       !!audioFile ||
       !!subtitle ||
       !!videoUrl ||
-      !!docUrl;
+      !!docUrl ||
+      !!audioUrl;
 
     let title = formTitle;
     if (!source && providedNonTitleInput) {
@@ -1734,7 +1768,7 @@ export async function POST(req: Request) {
             hasDocUrl: !!docUrl,
             hasVideo: !!video || !!videoUrl,
             hasSubtitle: !!subtitle,
-            hasAudio: !!audioFile,
+            hasAudio: !!audioFile || !!audioUrl,
           },
         },
         { status: 400 }
