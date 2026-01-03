@@ -3,6 +3,8 @@ import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/db";
 import { callLLMResult } from "@/lib/aiClient";
+import { put } from "@vercel/blob";
+import { transcribeAudioUrlWithRunpod } from "@/lib/asrClient";
 
 export const runtime = "nodejs";         // node runtime to allow larger bodies locally
 export const dynamic = "force-dynamic";
@@ -395,33 +397,42 @@ async function extractPptxTextFromBuffer(buf: Buffer): Promise<string> {
 
 // ---- transcribe an audio File (from client MP3) ----
 async function transcribeAudioFile(file: File): Promise<string> {
-  if (!process.env.OPENAI_API_KEY) throw new Error("Missing OPENAI_API_KEY");
-  const form = new FormData();
-  form.append("model", "whisper-1");
-  form.append("file", file, file.name || "audio.mp3");
-  const tr = await fetch("https://api.openai.com/v1/audio/transcriptions", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
-    body: form,
-  });
-  if (!tr.ok) {
-    const errTxt = await tr.text().catch(() => "");
-    throw new Error(`Transcription failed: ${tr.status} ${errTxt}`);
-  }
-  const out = (await tr.json()) as { text?: string };
-  const text = cleanText(out.text || "");
-  if (!text) throw new Error("No speech recognized.");
-  return text;
+  const buf = Buffer.from(await file.arrayBuffer());
+  return transcribeBuffer(buf, file.name || "audio.mp3", file.type || "application/octet-stream");
 }
 
 // Transcribe a server-side audio buffer using OpenAI Whisper endpoint
 async function transcribeBufferWithOpenAI(buf: Buffer): Promise<string> {
-  if (!process.env.OPENAI_API_KEY) throw new Error("Missing OPENAI_API_KEY");
+  return transcribeBuffer(buf, "audio.mp3", "audio/mpeg");
+}
+
+async function transcribeBuffer(buf: Buffer, filename: string, contentType: string): Promise<string> {
+  // Prefer RunPod ASR (Whisper replacement) if configured.
+  const hasRunpodAsr = !!(process.env.RUNPOD_ASR_ENDPOINT || process.env.RUNPOD_ASR_ENDPOINT_ID);
+  if (hasRunpodAsr) {
+    const safeName = (filename || "audio.mp3").replace(/[^a-zA-Z0-9._-]+/g, "_");
+    const pathname = `uploads/audio/${Date.now()}-${safeName}`;
+    const blob = await put(pathname, new Blob([buf as any]), {
+      access: "public",
+      contentType: contentType || "application/octet-stream",
+      addRandomSuffix: true,
+    });
+
+    const asr = await transcribeAudioUrlWithRunpod(blob.url);
+    if (!asr.ok) {
+      throw new Error(`RunPod ASR failed: ${asr.message} [${asr.code}]`);
+    }
+    const t = cleanText(asr.transcript || "");
+    if (!t) throw new Error("No speech recognized.");
+    return t;
+  }
+
+  // Fallback to OpenAI Whisper if RunPod ASR is not configured.
+  if (!process.env.OPENAI_API_KEY) throw new Error("Missing OPENAI_API_KEY (and RunPod ASR not configured)");
   const form = new FormData();
   form.append("model", "whisper-1");
-  // Node 18+ supports Blob; cast to any to satisfy TS for server environment
   const blob = new Blob([buf as any]);
-  form.append("file", blob as any, "audio.mp3");
+  form.append("file", blob as any, filename || "audio.mp3");
   const tr = await fetch("https://api.openai.com/v1/audio/transcriptions", {
     method: "POST",
     headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
