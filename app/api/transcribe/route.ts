@@ -7,41 +7,70 @@ export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
   try {
-    const form = await req.formData();
+    const ct = req.headers.get("content-type") || "";
 
-    const file = form.get("file") as File | null;
-    const audioUrl = String(form.get("audioUrl") || "").trim();
+    let url = "";
+    let uploaded = false;
 
-    let url = audioUrl;
-
-    if (!url) {
-      if (!file) {
-        return NextResponse.json(
-          { error: "Missing file (form field name: file) or audioUrl" },
-          { status: 400 }
-        );
+    // Mode B: JSON { audioUrl }
+    if (ct.includes("application/json")) {
+      const body = (await req.json().catch(() => ({}))) as any;
+      url = String(body?.audioUrl || "").trim();
+      if (!url) {
+        return NextResponse.json({ error: "Missing audioUrl" }, { status: 400 });
       }
+    } else {
+      // Mode A: multipart/form-data (file) and/or audioUrl
+      const form = await req.formData();
+      const file = form.get("file") as File | null;
+      const audioUrl = String(form.get("audioUrl") || "").trim();
 
-      const buf = Buffer.from(await file.arrayBuffer());
-      const safeName = (file.name || "audio.mp3").replace(/[^a-zA-Z0-9._-]+/g, "_");
-      const pathname = `uploads/audio/${Date.now()}-${safeName}`;
+      url = audioUrl;
+      if (!url) {
+        if (!file) {
+          return NextResponse.json({ error: "Missing file (form field name: file) or audioUrl" }, { status: 400 });
+        }
 
-      const blob = await put(pathname, new Blob([buf as any]), {
-        access: "public",
-        contentType: file.type || "application/octet-stream",
-        addRandomSuffix: true,
-      });
+        const safeName = (file.name || "audio.mp3").replace(/[^a-zA-Z0-9._-]+/g, "_");
+        const pathname = `uploads/audio/${Date.now()}-${safeName}`;
 
-      url = blob.url;
+        const blob = await put(pathname, file, {
+          access: "public",
+          contentType: file.type || "application/octet-stream",
+          addRandomSuffix: true,
+        });
+
+        url = blob.url;
+        uploaded = true;
+      }
     }
 
-    const result = await transcribeAudioUrlWithRunpod(url);
+    const timeoutMs = Number(process.env.RUNPOD_ASR_TIMEOUT_MS || 90_000);
+    const result = await transcribeAudioUrlWithRunpod(url, { timeoutMs });
     if (!result.ok) {
-      const status = result.code === "NOT_CONFIGURED" ? 500 : 502;
-      return NextResponse.json({ error: result.message, code: result.code, raw: result.raw ?? null }, { status });
+      const status =
+        result.code === "TIMEOUT" ? 504 : result.code === "NOT_CONFIGURED" ? 500 : result.code === "EXCEPTION" ? 500 : 502;
+      return NextResponse.json(
+        {
+          error: result.message,
+          code: result.code,
+          status: result.status ?? null,
+          id: result.id ?? null,
+          raw: result.raw ?? null,
+        },
+        { status }
+      );
     }
 
-    return NextResponse.json({ transcript: result.transcript, audioUrl: url, raw: result.raw ?? null });
+    const includeRaw = process.env.ASR_DEBUG === "1";
+    return NextResponse.json({
+      transcript: result.transcript,
+      segments: (result as any).segments ?? null,
+      detectedLanguage: (result as any).detectedLanguage ?? null,
+      audioUrl: url,
+      uploaded,
+      ...(includeRaw ? { raw: (result as any).raw ?? null } : {}),
+    });
   } catch (e: any) {
     return NextResponse.json({ error: e?.message || "Unknown error" }, { status: 500 });
   }

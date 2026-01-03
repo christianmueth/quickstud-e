@@ -427,8 +427,14 @@ async function transcribeBuffer(buf: Buffer, filename: string, contentType: stri
     return t;
   }
 
-  // Fallback to OpenAI Whisper if RunPod ASR is not configured.
-  if (!process.env.OPENAI_API_KEY) throw new Error("Missing OPENAI_API_KEY (and RunPod ASR not configured)");
+  // Fallback to OpenAI Whisper ONLY if explicitly allowed.
+  const allowOpenAIFallback = String(process.env.ASR_FALLBACK || "").toLowerCase() === "openai";
+  if (!allowOpenAIFallback) {
+    throw new Error(
+      "RunPod ASR is not configured. Set RUNPOD_ASR_ENDPOINT(_ID) and RUNPOD_ASR_API_KEY, or set ASR_FALLBACK=openai to allow Whisper fallback."
+    );
+  }
+  if (!process.env.OPENAI_API_KEY) throw new Error("Missing OPENAI_API_KEY (ASR_FALLBACK=openai requested)");
   const form = new FormData();
   form.append("model", "whisper-1");
   const blob = new Blob([buf as any]);
@@ -1173,8 +1179,14 @@ export async function POST(req: Request) {
         } else {
           // Fallback path (legacy): extract audio server-side and transcribe.
           // This is slower and more likely to hit serverless limits.
+          const allowOpenAIFallback = String(process.env.ASR_FALLBACK || "").toLowerCase() === "openai";
+          if (!allowOpenAIFallback) {
+            throw new Error(
+              "RunPod ASR is not configured. Set RUNPOD_ASR_ENDPOINT(_ID) and RUNPOD_ASR_API_KEY, or set ASR_FALLBACK=openai to allow Whisper fallback."
+            );
+          }
           if (!process.env.OPENAI_API_KEY) {
-            throw new Error("OpenAI API key not configured (and RunPod ASR not configured). Cannot transcribe video.");
+            throw new Error("Missing OPENAI_API_KEY (ASR_FALLBACK=openai requested)");
           }
         
           // Save video to temp file
@@ -1336,7 +1348,7 @@ export async function POST(req: Request) {
         if (text) { 
           console.log("[Upload] PDF text extracted successfully");
           source = truncate(text); 
-          origin = "pdf"; 
+            const text = await transcribeBuffer(buf, "youtube.mp3", "audio/mpeg");
         } else {
           console.log("[Upload] PDF text extraction failed - empty result");
         }
