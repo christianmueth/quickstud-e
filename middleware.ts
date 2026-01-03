@@ -11,6 +11,19 @@ const isPublicRoute = createRouteMatcher([
 ]);
 
 export default clerkMiddleware(async (auth, request) => {
+  // Optional test bypass for CLI smoke-tests without a Clerk session.
+  // Requires setting FLASHCARDS_TEST_KEY in the environment and passing header:
+  //   x-flashcards-test-key: <FLASHCARDS_TEST_KEY>
+  const testKey = process.env.FLASHCARDS_TEST_KEY;
+  const path = request.nextUrl.pathname;
+  if (
+    testKey &&
+    path.startsWith("/api/flashcards") &&
+    request.headers.get("x-flashcards-test-key") === testKey
+  ) {
+    return;
+  }
+
   if (!isPublicRoute(request)) {
     await auth.protect();
   }

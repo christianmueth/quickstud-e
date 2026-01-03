@@ -1000,8 +1000,15 @@ function fallbackCards(text: string) {
 export async function POST(req: Request) {
   const t0 = Date.now();
   try {
-    const { userId } = await auth();
-    if (!userId) return NextResponse.redirect(new URL("/sign-in", req.url));
+    const testKey = process.env.FLASHCARDS_TEST_KEY;
+    const isTestMode = !!testKey && req.headers.get("x-flashcards-test-key") === testKey;
+
+    let userId: string | null = null;
+    if (!isTestMode) {
+      const authResult = await auth();
+      userId = authResult.userId;
+      if (!userId) return NextResponse.redirect(new URL("/sign-in", req.url));
+    }
 
     // In production we should not silently fall back if RunPod isn't configured.
     if (process.env.NODE_ENV === "production") {
@@ -1030,21 +1037,23 @@ export async function POST(req: Request) {
 
     const form = await req.formData();
     
-    // Enforce per-user daily deck creation limit
-    try {
-      const startOfDay = new Date();
-      startOfDay.setHours(0, 0, 0, 0);
-      const createdToday = await prisma.deck.count({
-        where: { user: { clerkUserId: userId }, createdAt: { gte: startOfDay } },
-      });
-      if (createdToday >= MAX_DECKS_PER_DAY) {
-        return NextResponse.json(
-          { error: `Daily limit reached. You can create up to ${MAX_DECKS_PER_DAY} decks per day.`, code: "RATE_LIMIT" },
-          { status: 429 }
-        );
+    // Enforce per-user daily deck creation limit (skip in test mode)
+    if (!isTestMode) {
+      try {
+        const startOfDay = new Date();
+        startOfDay.setHours(0, 0, 0, 0);
+        const createdToday = await prisma.deck.count({
+          where: { user: { clerkUserId: userId! }, createdAt: { gte: startOfDay } },
+        });
+        if (createdToday >= MAX_DECKS_PER_DAY) {
+          return NextResponse.json(
+            { error: `Daily limit reached. You can create up to ${MAX_DECKS_PER_DAY} decks per day.`, code: "RATE_LIMIT" },
+            { status: 429 }
+          );
+        }
+      } catch (e) {
+        console.warn("[RateLimit] Failed to check daily limit:", (e as any)?.message || e);
       }
-    } catch (e) {
-      console.warn("[RateLimit] Failed to check daily limit:", (e as any)?.message || e);
     }
 
     // Helper function for getting last value from form
@@ -1554,6 +1563,22 @@ export async function POST(req: Request) {
       console.warn("[Cards] ⚠️ USING FALLBACK CARDS - AI generation failed or unavailable");
       return fallbackCards(source).map((c) => ({ question: c.question, answer: c.answer }));
     })();
+
+    // Test mode: don't touch the DB, just return the cards.
+    if (isTestMode) {
+      return NextResponse.json(
+        {
+          ok: true,
+          mode: "test",
+          title,
+          origin,
+          cardCountRequested: cardCount,
+          cardCountReturned: cards.length,
+          cards,
+        },
+        { status: 200 }
+      );
+    }
 
     // Ensure user
     const userRow = await prisma.user.upsert({
