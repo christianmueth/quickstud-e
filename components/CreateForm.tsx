@@ -483,13 +483,13 @@ export default function CreateForm() {
 
       {/* Video upload (server may disable) */}
       <div className={contentType === "video" ? "" : "hidden"}>
-        <label className="text-sm font-medium">Upload video file</label>
+        <label className="text-sm font-medium">Upload video or audio file</label>
         
         {/* Warning banner */}
         <div className="mb-2 border-l-4 border-orange-500 bg-orange-50 p-3 rounded">
-          <p className="text-sm font-semibold text-orange-800">⚠️ Video uploads are slow and cost the website API credits</p>
+          <p className="text-sm font-semibold text-orange-800">⚠️ Uploads are slower and cost the website API credits</p>
           <p className="text-xs text-orange-700 mt-1">
-            Processing takes up to 5 minutes. YouTube URLs are instant and free!
+            Processing can take a few minutes. If YouTube URL import is blocked, download the audio (mp3/m4a) and upload it here.
           </p>
         </div>
         
@@ -499,7 +499,7 @@ export default function CreateForm() {
             id="video-input"
             type="file"
             name="video"
-            accept="video/*"
+            accept="video/*,audio/*"
             className="hidden"
             onChange={(e) => {
               const f = e.currentTarget.files?.[0];
