@@ -253,7 +253,7 @@ async function extractFromYouTubeStrict(u: URL): Promise<{ title: string; text: 
     console.warn("[YouTube] ytdl-core captions fetch failed:", (e as any)?.message || e);
   }
 
-  // 2) If captions unavailable, attempt to download audio and transcribe via OpenAI
+  // 2) If captions unavailable, attempt to download audio and transcribe.
   try {
     const ytdl = (await import("ytdl-core")) as any;
     const stream = ytdl(id, { filter: "audioonly", quality: "lowestaudio" });
@@ -261,7 +261,7 @@ async function extractFromYouTubeStrict(u: URL): Promise<{ title: string; text: 
     for await (const chunk of stream) chunks.push(Buffer.from(chunk));
     const buf = Buffer.concat(chunks);
     console.log("[YouTube] Downloaded audio size:", buf.length);
-    const text = await transcribeBufferWithOpenAI(buf);
+    const text = await transcribeBuffer(buf, "youtube.mp3", "audio/mpeg");
     const cleaned = cleanText(text || "");
     if (!cleaned) throw new Error("Transcription returned empty text.");
     return { title: `YouTube ${id}`, text: cleaned };
