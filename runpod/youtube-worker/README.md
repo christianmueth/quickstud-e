@@ -14,6 +14,22 @@ It implements the contract expected by the app’s RunPod client in [lib/runpodY
 
 ## Deploy
 
+### Option 1 (No local Docker): GitHub Actions → GHCR (recommended)
+
+If Docker Desktop isn’t working locally, you can build/publish the image using GitHub Actions.
+
+1. Push this repo to GitHub (already done).
+2. In GitHub, go to **Actions** and run the workflow:
+   - `Publish RunPod YouTube worker (GHCR)`
+3. After it runs, your image will be published to GHCR at:
+   - `ghcr.io/<github-owner>/quickstud-youtube-worker:latest`
+
+Notes:
+- Ensure GitHub Actions has permission to publish packages (repo Settings → Actions → General → Workflow permissions).
+- GHCR images can be private by default; RunPod must be able to pull the image. The simplest setup is making the package public.
+
+### Option 2: Build and push locally (Docker)
+
 1. Build and push an image (example):
 
    - `docker build -t <your-registry>/quickstud-youtube-worker:latest .`
