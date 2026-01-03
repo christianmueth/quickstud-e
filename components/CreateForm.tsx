@@ -31,7 +31,7 @@ export default function CreateForm() {
 
   const MAX_FILE_SIZE = 200 * 1024 * 1024; // 200MB limit for PDF/PPTX
 
-  async function uploadViaBlob(file: File, kind: "doc" | "video") {
+  async function uploadViaBlob(file: File, kind: "doc" | "video" | "audio") {
     const safeName = (file.name || `${kind}.bin`).replace(/[^a-zA-Z0-9._-]+/g, "_");
     const pathname = `uploads/${kind}/${Date.now()}-${safeName}`;
     return upload(pathname, file, {
@@ -39,6 +39,13 @@ export default function CreateForm() {
       handleUploadUrl: "/api/blob-upload",
       multipart: file.size > 10 * 1024 * 1024,
     });
+  }
+
+  function looksLikeAudioFile(file: File) {
+    const t = (file.type || "").toLowerCase();
+    if (t.startsWith("audio/")) return true;
+    const nm = (file.name || "").toLowerCase();
+    return nm.endsWith(".mp3") || nm.endsWith(".m4a") || nm.endsWith(".wav") || nm.endsWith(".ogg") || nm.endsWith(".webm");
   }
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -101,7 +108,7 @@ export default function CreateForm() {
       }
       // Video is handled specially below
 
-      // Video handling: upload large files to Blob and send URL instead of raw file
+      // Video/audio handling: upload large files to Blob and send URL instead of raw file
       const videoInput = form.querySelector<HTMLInputElement>('input[name="video"]');
       const videoFile = videoInput?.files?.[0] || (original.get("video") as File | null);
       if (videoFile) {
@@ -119,7 +126,19 @@ export default function CreateForm() {
           needsBlobUpload: actualSize > API_BODY_LIMIT
         });
         
-        if (actualSize > API_BODY_LIMIT) {
+        const isAudio = looksLikeAudioFile(videoFile);
+
+        // If the user uploads audio (mp3/m4a/etc), prefer the same reliable audioUrl path as the CLI.
+        // This avoids the slower video-processing route and avoids any YouTube server-side fetching.
+        if (isAudio) {
+          const sizeMB = videoFile.size / (1024 * 1024);
+          const sizeKB = videoFile.size / 1024;
+          const sizeDisplay = sizeMB >= 1 ? `${sizeMB.toFixed(1)}MB` : `${sizeKB.toFixed(0)}KB`;
+          toast.info(`Uploading audio (${sizeDisplay})...`);
+          const blob = await uploadViaBlob(videoFile, "audio");
+          fd.append("audioUrl", blob.url);
+          toast.success("Audio uploaded. Transcribing + generating...");
+        } else if (actualSize > API_BODY_LIMIT) {
           // Upload to Blob for large videos (direct client upload)
           const sizeMB = videoFile.size / (1024 * 1024);
           const sizeKB = videoFile.size / 1024;
@@ -160,7 +179,12 @@ export default function CreateForm() {
 
       // Route to the appropriate API based on mode
       const apiEndpoint = generationMode === "flashcards" ? "/api/flashcards" : "/api/study-notes";
-      const res = await fetch(apiEndpoint, { method: "POST", body: fd });
+      const controller = new AbortController();
+      // Vercel functions can run for minutes; still cap client-side waits to avoid “frozen forever”.
+      const timeoutMs = 330_000; // 5.5 minutes
+      const t = setTimeout(() => controller.abort(), timeoutMs);
+      const res = await fetch(apiEndpoint, { method: "POST", body: fd, signal: controller.signal });
+      clearTimeout(t);
       if (!res.ok) {
         let msg = `Failed to generate (HTTP ${res.status})`;
         let j: any = null;
@@ -180,6 +204,11 @@ export default function CreateForm() {
           toast.error(
             "YouTube blocked server-side audio download. Use Subtitle upload (.srt/.vtt) or upload the video/audio file (mp3/m4a) in the Video tab."
           );
+          return;
+        }
+
+        if (res.status === 504) {
+          toast.error("Timed out while generating. Please retry (RunPod can be slow/queued).");
           return;
         }
 
@@ -209,7 +238,11 @@ export default function CreateForm() {
         }
       }
     } catch (err: any) {
-      toast.error(err?.message || "Network error");
+      if (err?.name === "AbortError") {
+        toast.error("This is taking too long. Please retry (or try a smaller file / upload audio instead of video). ");
+      } else {
+        toast.error(err?.message || "Network error");
+      }
     } finally {
       setPending(false);
     }
