@@ -1125,7 +1125,7 @@ export async function POST(req: Request) {
     // Origin tracking
     let origin: "text" | "url" | "youtube" | "video" | "pdf" | "pptx" | "unknown" = "unknown";
 
-    // 0) Video file - extract audio server-side and transcribe
+    // 0) Video file - prefer RunPod ASR by URL (fast); fallback to local ffmpeg + Whisper only if needed.
     if (!source && (video || videoUrl)) {
       try {
         const isRemote = !!videoUrl && !video;
@@ -1138,94 +1138,136 @@ export async function POST(req: Request) {
           throw new Error("Empty video upload");
         }
         
-        // Validate OPENAI_API_KEY before attempting expensive processing
-        if (!process.env.OPENAI_API_KEY) {
-          throw new Error("OpenAI API key not configured. Cannot transcribe video.");
-        }
+        const hasRunpodAsr = !!(process.env.RUNPOD_ASR_ENDPOINT || process.env.RUNPOD_ASR_ENDPOINT_ID);
+
+        // Fast path: if RunPod ASR is configured, send the video URL directly to the ASR worker.
+        // This avoids server-side ffmpeg (slow + fragile on Vercel) and avoids moving large bytes through the function.
+        if (hasRunpodAsr) {
+          let mediaUrl = videoUrl;
+          if (!mediaUrl && video) {
+            const safeName = (video.name || videoName || "video.mp4").replace(/[^a-zA-Z0-9._-]+/g, "_");
+            const pathname = `uploads/video/${Date.now()}-${safeName}`;
+            const blob = await put(pathname, video, {
+              access: "public",
+              contentType: video.type || "application/octet-stream",
+              addRandomSuffix: true,
+            });
+            mediaUrl = blob.url;
+          }
+
+          if (!mediaUrl) throw new Error("Missing videoUrl/video file");
+
+          console.log("[Video] Using RunPod ASR via URL (skipping local ffmpeg)");
+          const asrTimeoutMs = Number(process.env.RUNPOD_ASR_TIMEOUT_MS || 50_000);
+          const asr = await transcribeAudioUrlWithRunpod(mediaUrl, { timeoutMs: asrTimeoutMs });
+          if (!asr.ok) throw new Error(`RunPod ASR failed: ${asr.message} [${asr.code}]`);
+
+          const text = cleanText(asr.transcript || "");
+          if (!text || text.length < 10) {
+            throw new Error("Transcription returned no usable text. The video may have no speech.");
+          }
+
+          source = truncate(text);
+          origin = "video";
+          console.log("[Video] Successfully processed video into", source.length, "chars of text (RunPod ASR)");
+        } else {
+          // Fallback path (legacy): extract audio server-side and transcribe.
+          // This is slower and more likely to hit serverless limits.
+          if (!process.env.OPENAI_API_KEY) {
+            throw new Error("OpenAI API key not configured (and RunPod ASR not configured). Cannot transcribe video.");
+          }
         
-        // Save video to temp file
-        const { mkdtempSync, writeFileSync, readFileSync, unlinkSync, rmSync } = await import("fs");
-        const { tmpdir } = await import("os");
-        const { join } = await import("path");
-        const { spawn } = await import("child_process");
-        
-        const tempDir = mkdtempSync(join(tmpdir(), "quickstud-video-"));
-        const videoPath = join(tempDir, `input${(video?.name || videoName || "").match(/\.[^.]+$/)?.[0] || ".mp4"}`);
-        const audioPath = join(tempDir, "audio.mp3");
-        
-        if (!isRemote && video) {
-          // Write uploaded video file to disk
-          const videoBuffer = Buffer.from(await video.arrayBuffer());
-          writeFileSync(videoPath, videoBuffer);
-          console.log("[Video] Saved to:", videoPath);
-        }
-        
-        // Extract audio using ffmpeg (system binary)
-        console.log("[Video] Starting audio extraction with ffmpeg...");
-        await new Promise<void>((resolve, reject) => {
-          // Use system ffmpeg
-          const bin = "ffmpeg";
-          console.log("[Video] Using system ffmpeg");
-          
-          const ffmpeg = spawn(bin, [
-            "-i", isRemote ? videoUrl : videoPath,
-            "-vn",              // no video
-            "-ac", "1",         // mono
-            "-ar", "16000",     // 16 kHz
-            "-b:a", "32k",      // 32 kbps
-            "-y",
-            audioPath
-          ]);
-          
-          let stderr = "";
-          ffmpeg.stderr.on("data", (data) => { stderr += data.toString(); });
-          
-          ffmpeg.on("close", (code) => {
-            if (code === 0) {
-              console.log("[Video] Audio extracted successfully");
-              resolve();
-            } else {
-              console.error("[Video] FFmpeg stderr:", stderr);
-              reject(new Error(`FFmpeg failed with code ${code} (binary: ${bin}). ${stderr.slice(-200)}`));
-            }
+          // Save video to temp file
+          const { mkdtempSync, writeFileSync, readFileSync, unlinkSync, rmSync } = await import("fs");
+          const { tmpdir } = await import("os");
+          const { join } = await import("path");
+          const { spawn } = await import("child_process");
+
+          const tempDir = mkdtempSync(join(tmpdir(), "quickstud-video-"));
+          const videoPath = join(tempDir, `input${(video?.name || videoName || "").match(/\.[^.]+$/)?.[0] || ".mp4"}`);
+          const audioPath = join(tempDir, "audio.mp3");
+
+          if (!isRemote && video) {
+            // Write uploaded video file to disk
+            const videoBuffer = Buffer.from(await video.arrayBuffer());
+            writeFileSync(videoPath, videoBuffer);
+            console.log("[Video] Saved to:", videoPath);
+          }
+
+          // Extract audio using ffmpeg (system binary)
+          console.log("[Video] Starting audio extraction with ffmpeg...");
+          await new Promise<void>((resolve, reject) => {
+            const bin = "ffmpeg";
+            console.log("[Video] Using system ffmpeg");
+
+            const ffmpeg = spawn(bin, [
+              "-i",
+              isRemote ? videoUrl : videoPath,
+              "-vn", // no video
+              "-ac",
+              "1", // mono
+              "-ar",
+              "16000", // 16 kHz
+              "-b:a",
+              "32k", // 32 kbps
+              "-y",
+              audioPath,
+            ]);
+
+            let stderr = "";
+            ffmpeg.stderr.on("data", (data) => {
+              stderr += data.toString();
+            });
+
+            ffmpeg.on("close", (code) => {
+              if (code === 0) {
+                console.log("[Video] Audio extracted successfully");
+                resolve();
+              } else {
+                console.error("[Video] FFmpeg stderr:", stderr);
+                reject(new Error(`FFmpeg failed with code ${code} (binary: ${bin}). ${stderr.slice(-200)}`));
+              }
+            });
+
+            ffmpeg.on("error", (err) => {
+              console.error("[Video] FFmpeg spawn error:", err);
+              reject(new Error(`Could not spawn ffmpeg: ${err.message}`));
+            });
           });
-          
-          ffmpeg.on("error", (err) => {
-            console.error("[Video] FFmpeg spawn error:", err);
-            reject(new Error(`Could not spawn ffmpeg: ${err.message}`));
-          });
-        });
-        
-        // Transcribe extracted audio
-        const audioBuffer = readFileSync(audioPath);
-        console.log("[Video] Audio extracted:", audioBuffer.length, "bytes. Sending to OpenAI Whisper...");
-        
-        // OpenAI Whisper has a 25MB file size limit for audio
-        if (audioBuffer.length > 25 * 1024 * 1024) {
-          throw new Error("Extracted audio exceeds 25MB limit for Whisper API. Try a shorter video or use YouTube URL with captions.");
+
+          // Transcribe extracted audio
+          const audioBuffer = readFileSync(audioPath);
+          console.log("[Video] Audio extracted:", audioBuffer.length, "bytes. Sending to Whisper...");
+
+          // OpenAI Whisper has a 25MB file size limit for audio
+          if (audioBuffer.length > 25 * 1024 * 1024) {
+            throw new Error(
+              "Extracted audio exceeds 25MB limit for Whisper API. Try a shorter video or use YouTube URL with captions."
+            );
+          }
+
+          const text = await transcribeBufferWithOpenAI(audioBuffer);
+          console.log("[Video] Transcription completed:", text.length, "chars");
+          console.log("[Video] Sample:", text.slice(0, 200));
+
+          // Cleanup
+          try {
+            if (!isRemote) unlinkSync(videoPath);
+            unlinkSync(audioPath);
+            rmSync(tempDir, { recursive: true });
+            console.log("[Video] Cleanup complete");
+          } catch (e) {
+            console.warn("[Video] Cleanup warning:", (e as any)?.message);
+          }
+
+          if (!text || text.length < 10) {
+            throw new Error("Transcription returned no usable text. The video may have no speech.");
+          }
+
+          source = truncate(text);
+          origin = "video";
+          console.log("[Video] Successfully processed video into", source.length, "chars of text");
         }
-        
-        const text = await transcribeBufferWithOpenAI(audioBuffer);
-        console.log("[Video] Transcription completed:", text.length, "chars");
-        console.log("[Video] Sample:", text.slice(0, 200));
-        
-        // Cleanup
-        try {
-          if (!isRemote) unlinkSync(videoPath);
-          unlinkSync(audioPath);
-          rmSync(tempDir, { recursive: true });
-          console.log("[Video] Cleanup complete");
-        } catch (e) {
-          console.warn("[Video] Cleanup warning:", (e as any)?.message);
-        }
-        
-        if (!text || text.length < 10) {
-          throw new Error("Transcription returned no usable text. The video may have no speech.");
-        }
-        
-        source = truncate(text); 
-        origin = "video";
-        console.log("[Video] Successfully processed video into", source.length, "chars of text");
       } catch (e: any) {
         console.error("[Video] Processing failed:", e?.message || e);
         if (STRICT_VIDEO) return NextResponse.json({ 
