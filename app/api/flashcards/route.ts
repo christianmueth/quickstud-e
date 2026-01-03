@@ -109,7 +109,19 @@ function extractFirstJsonArray(s: string): string | null {
 async function fetchYouTubeTranscriptViaYtdlCore(id: string): Promise<string | null> {
   try {
     const ytdl = (await import("ytdl-core")) as any;
-    const info = await (ytdl.default ? ytdl.default.getInfo(id) : ytdl.getInfo(id));
+    const ytdlDefault = ytdl.default ?? ytdl;
+    const watchUrl = `https://www.youtube.com/watch?v=${id}`;
+    const requestOptions = {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36",
+        "Accept-Language": "en-US,en;q=0.9",
+      },
+    };
+
+    const info = await (ytdlDefault.getInfo
+      ? ytdlDefault.getInfo(watchUrl, { requestOptions })
+      : ytdl.getInfo(watchUrl, { requestOptions }));
     const pr =
       info.player_response ||
       (typeof info.player_response === "string" ? JSON.parse(info.player_response) : info.player_response) ||
@@ -121,9 +133,14 @@ async function fetchYouTubeTranscriptViaYtdlCore(id: string): Promise<string | n
     const track = tracks.find((t: any) => t.languageCode === "en") || tracks[0];
     const baseUrl: string = track.baseUrl;
 
+    const captionFetchHeaders = {
+      "User-Agent": requestOptions.headers["User-Agent"],
+      "Accept-Language": requestOptions.headers["Accept-Language"],
+    };
+
     // Try JSON3
     try {
-      const r = await fetch(baseUrl + "&fmt=json3");
+      const r = await fetch(baseUrl + "&fmt=json3", { headers: captionFetchHeaders });
       if (r.ok) {
         const j: any = await r.json();
         const text = (j.events || [])
@@ -138,7 +155,7 @@ async function fetchYouTubeTranscriptViaYtdlCore(id: string): Promise<string | n
 
     // Fallback XML timedtext
     try {
-      const r2 = await fetch(baseUrl);
+      const r2 = await fetch(baseUrl, { headers: captionFetchHeaders });
       if (r2.ok) {
         const xml = await r2.text();
         const matches = Array.from(xml.matchAll(/<text[^>]*>([^<]*)<\/text>/g));
@@ -328,18 +345,32 @@ async function extractFromYouTubeStrict(u: URL): Promise<{ title: string; text: 
   // 1b) Try to extract captions from player_response via ytdl-core (more robust for some videos)
   try {
     const ytdl = (await import("ytdl-core")) as any;
+    const ytdlDefault = ytdl.default ?? ytdl;
     const target = u.toString();
+    const requestOptions = {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36",
+        "Accept-Language": "en-US,en;q=0.9",
+      },
+    };
     try {
-      const info = await (ytdl.default ? ytdl.default.getInfo(target) : ytdl.getInfo(target));
+      const info = await (ytdlDefault.getInfo
+        ? ytdlDefault.getInfo(target, { requestOptions })
+        : ytdl.getInfo(target, { requestOptions }));
       const pr = info.player_response || (typeof info.player_response === "string" ? JSON.parse(info.player_response) : info.player_response) || info.playerResponse;
       const tracks = pr?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
       if (tracks && tracks.length) {
         // prefer English if available
         const track = tracks.find((t: any) => t.languageCode === "en") || tracks[0];
         const baseUrl: string = track.baseUrl;
+        const captionFetchHeaders = {
+          "User-Agent": requestOptions.headers["User-Agent"],
+          "Accept-Language": requestOptions.headers["Accept-Language"],
+        };
         // try JSON3 first
         try {
-          const r = await fetch(baseUrl + "&fmt=json3");
+          const r = await fetch(baseUrl + "&fmt=json3", { headers: captionFetchHeaders });
           if (r.ok) {
             const j = await r.json();
             const text = (j.events || []).map((ev: any) => (ev.segs || []).map((s: any) => s.utf8 || "").join("")).join(" ");
@@ -349,7 +380,7 @@ async function extractFromYouTubeStrict(u: URL): Promise<{ title: string; text: 
         } catch {}
         // fallback to XML timedtext
         try {
-          const r2 = await fetch(baseUrl);
+          const r2 = await fetch(baseUrl, { headers: captionFetchHeaders });
           if (r2.ok) {
             const xml = await r2.text();
             const matches = Array.from(xml.matchAll(/<text[^>]*>([^<]*)<\/text>/g));
@@ -1671,7 +1702,7 @@ export async function POST(req: Request) {
                   return NextResponse.json(
                     {
                       error:
-                        "YouTube blocked server-side audio download from this deployment. Try a different video, or use an upload/transcript source instead.",
+                        "YouTube blocked server-side audio download from this deployment. Use the Subtitle tab (upload .srt/.vtt) or upload audio/video (mp3/m4a) instead.",
                       code: "YT_AUDIO_DOWNLOAD_FAILED",
                       diag: ytDiag,
                     },

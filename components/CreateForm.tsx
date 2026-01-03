@@ -176,6 +176,13 @@ export default function CreateForm() {
           return;
         }
 
+        if (j?.code === "YT_AUDIO_DOWNLOAD_FAILED") {
+          toast.error(
+            "YouTube blocked server-side audio download. Use Subtitle upload (.srt/.vtt) or upload the video/audio file (mp3/m4a) in the Video tab."
+          );
+          return;
+        }
+
         throw new Error(msg);
       }
 
