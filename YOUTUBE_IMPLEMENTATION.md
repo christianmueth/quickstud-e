@@ -25,8 +25,12 @@ YouTube URL
 3. HTML scraping for ytInitialPlayerResponse
     ↓ (if fails)
 4. ytdl-core with caption extraction
+  ↓ (if fails)
+4b. YouTube timedtext endpoints (manual + auto captions)
+  ↓ (if fails)
+5. RunPod YouTube worker (downloads + ASR on RunPod)
     ↓ (if fails)
-5. Audio download + Whisper transcription (LAST RESORT)
+6. Server-side audio download + RunPod ASR (LAST RESORT; often blocked on Vercel)
 ```
 
 ### Files Modified/Created
@@ -70,7 +74,17 @@ yt-dlp --version
 
 ### Environment Variables
 ```env
-OPENAI_API_KEY=sk-...  # Required for flashcard generation and audio fallback
+# RunPod LLM (flashcard generation)
+RUNPOD_ENDPOINT=https://api.runpod.ai/v2/<id>/run
+RUNPOD_API_KEY=...
+
+# RunPod ASR ("RunPod Whisper")
+RUNPOD_ASR_ENDPOINT_ID=...  # or RUNPOD_ASR_ENDPOINT
+RUNPOD_ASR_API_KEY=...      # or reuse RUNPOD_API_KEY
+
+# Optional: RunPod YouTube ingestion worker (recommended for YouTube URLs that block Vercel)
+RUNPOD_YOUTUBE_ENDPOINT_ID=...
+RUNPOD_YOUTUBE_API_KEY=...  # or reuse RUNPOD_API_KEY
 ```
 
 ## Usage
@@ -133,13 +147,14 @@ npx ts-node -P tsconfig.scripts.json scripts/test-full-flow.ts
 
 ## Fallback Strategy
 
-If yt-dlp fails (e.g., video has no captions), the system:
+If yt-dlp fails (e.g., video has no captions or yt-dlp isn't available), the system:
 
 1. Tries alternative caption sources (see Architecture above)
-2. As absolute last resort: downloads audio + transcribes with Whisper
-   - Only if `STRICT_VIDEO !== "1"`
-   - Requires OpenAI API key
-   - Slower and costs API credits
+2. Tries timedtext endpoints (manual + auto captions)
+3. If configured, offloads YouTube download + ASR to RunPod (`RUNPOD_YOUTUBE_ENDPOINT_ID`)
+4. As a last resort, attempts server-side audio download + RunPod ASR
+  - Often blocked on Vercel for some videos (HTTP 410/403/429)
+  - Prefer the RunPod YouTube worker if you need paste-a-link to be reliable
 
 ## Performance
 
@@ -157,8 +172,9 @@ If yt-dlp fails (e.g., video has no captions), the system:
 ## Deployment Considerations
 
 ### Vercel/Serverless
-- Install yt-dlp in Docker container or use layer
-- Or use Whisper fallback only (no yt-dlp dependency)
+- yt-dlp is usually not available on Vercel
+- Some YouTube videos block Vercel from downloading audio
+- For reliable paste-a-YouTube-link behavior, use the RunPod YouTube ingestion worker
 
 ### VPS/Dedicated Server
 - `pip install yt-dlp` on the server

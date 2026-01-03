@@ -18,7 +18,9 @@ export default clerkMiddleware(async (auth, request) => {
   const path = request.nextUrl.pathname;
   if (
     testKey &&
-    (path.startsWith("/api/flashcards") || path.startsWith("/api/blob-upload-url")) &&
+    (path.startsWith("/api/flashcards") ||
+      path.startsWith("/api/blob-upload-url") ||
+      path.startsWith("/api/youtube/runpod-transcribe")) &&
     request.headers.get("x-flashcards-test-key") === testKey
   ) {
     return;

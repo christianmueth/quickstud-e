@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db";
 import { callLLMResult } from "@/lib/aiClient";
 import { put } from "@vercel/blob";
 import { transcribeAudioUrlWithRunpod } from "@/lib/asrClient";
+import { transcribeYoutubeUrlWithRunpod } from "@/lib/runpodYoutubeClient";
 
 export const runtime = "nodejs";         // node runtime to allow larger bodies locally
 export const dynamic = "force-dynamic";
@@ -1551,6 +1552,7 @@ export async function POST(req: Request) {
           const ytDiag: any = {
             videoId: getYouTubeId(u),
             captions: { attempted: false, ok: false, error: null as string | null },
+            runpodYoutube: { attempted: false, ok: false, error: null as string | null, notConfigured: false },
             asr: {
               attempted: false,
               ok: false,
@@ -1599,6 +1601,40 @@ export async function POST(req: Request) {
                 } catch (capErr: any) {
                   ytDiag.captions.error = String(capErr?.message || capErr || "CAPTIONS_FAILED");
                 }
+              }
+
+              // If captions are unavailable from Vercel, try offloading YouTube download+ASR to RunPod.
+              // This is the only reliable way to make paste-a-YouTube-link work for videos that block Vercel IPs.
+              if (!source) {
+                ytDiag.runpodYoutube.attempted = true;
+                const ytJob = await transcribeYoutubeUrlWithRunpod(u.toString()).catch((err: any) => ({
+                  ok: false,
+                  reason: "EXCEPTION",
+                  message: String(err?.message || err || "RUNPOD_YOUTUBE_FAILED"),
+                }));
+
+                if ((ytJob as any).ok === true) {
+                  source = truncate((ytJob as any).transcript);
+                  origin = "youtube";
+                  ytDiag.runpodYoutube.ok = true;
+                } else {
+                  ytDiag.runpodYoutube.error = String((ytJob as any)?.message || (ytJob as any)?.reason || "RUNPOD_YOUTUBE_FAILED");
+                  ytDiag.runpodYoutube.notConfigured = (ytJob as any)?.reason === "NOT_CONFIGURED";
+                }
+              }
+
+              // If the RunPod YouTube worker isn't configured, fail loudly with a specific code.
+              // Otherwise users see a confusing "YouTube blocked" message even though the fix is env vars.
+              if (!source && ytDiag.runpodYoutube.attempted && ytDiag.runpodYoutube.notConfigured) {
+                return NextResponse.json(
+                  {
+                    error:
+                      "RunPod YouTube worker is not configured. Set RUNPOD_YOUTUBE_ENDPOINT_ID and RUNPOD_YOUTUBE_API_KEY (or reuse RUNPOD_API_KEY) in Vercel env vars.",
+                    code: "RUNPOD_YOUTUBE_NOT_CONFIGURED",
+                    diag: ytDiag,
+                  },
+                  { status: 500 }
+                );
               }
 
               // If captions are unavailable, fall back to audio download + RunPod ASR.
@@ -1652,10 +1688,23 @@ export async function POST(req: Request) {
                 const errMsg = String(ytDiag.asr.error || "");
                 const looksLikeYouTubeBlocked = /status code:\s*\d+/i.test(errMsg) || /410|403|429/.test(errMsg);
                 if (looksLikeYouTubeBlocked) {
+                  // If the audio download was blocked AND the RunPod YouTube worker was attempted but failed,
+                  // return a more actionable error than "blocked".
+                  if (ytDiag.runpodYoutube.attempted && ytDiag.runpodYoutube.error) {
+                    return NextResponse.json(
+                      {
+                        error:
+                          "YouTube blocked server-side audio download from this deployment, and the RunPod YouTube worker also failed. Check the RunPod worker logs and configuration.",
+                        code: "RUNPOD_YOUTUBE_FAILED",
+                        diag: ytDiag,
+                      },
+                      { status: 502 }
+                    );
+                  }
                   return NextResponse.json(
                     {
                       error:
-                        "YouTube blocked server-side audio download from this deployment. Use the Subtitle tab (upload .srt/.vtt) or upload audio/video (mp3/m4a) instead.",
+                        "YouTube blocked server-side audio download from this deployment. Use Subtitle upload (.srt/.vtt) or upload audio/video (mp3/m4a). To make paste-a-link work for blocked videos, configure RUNPOD_YOUTUBE_ENDPOINT_ID so RunPod can download/transcribe the YouTube URL.",
                       code: "YT_AUDIO_DOWNLOAD_FAILED",
                       diag: ytDiag,
                     },

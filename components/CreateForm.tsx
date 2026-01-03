@@ -207,6 +207,20 @@ export default function CreateForm() {
           return;
         }
 
+        if (j?.code === "RUNPOD_YOUTUBE_NOT_CONFIGURED") {
+          toast.error(
+            "Paste-a-link needs the RunPod YouTube worker configured. Set RUNPOD_YOUTUBE_ENDPOINT_ID and RUNPOD_YOUTUBE_API_KEY in Vercel env vars (or reuse RUNPOD_API_KEY)."
+          );
+          return;
+        }
+
+        if (j?.code === "RUNPOD_YOUTUBE_FAILED") {
+          toast.error(
+            "RunPod YouTube worker failed. Check the worker logs on RunPod; as a workaround upload audio (mp3/m4a) instead."
+          );
+          return;
+        }
+
         if (res.status === 504) {
           toast.error("Timed out while generating. Please retry (RunPod can be slow/queued).");
           return;
