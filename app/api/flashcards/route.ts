@@ -1164,18 +1164,96 @@ export async function POST(req: Request) {
           if (!mediaUrl) throw new Error("Missing videoUrl/video file");
 
           console.log("[Video] Using RunPod ASR via URL (skipping local ffmpeg)");
-          const asrTimeoutMs = Number(process.env.RUNPOD_ASR_TIMEOUT_MS || 50_000);
+          const asrTimeoutMs = Number(process.env.RUNPOD_ASR_TIMEOUT_MS || 90_000);
           const asr = await transcribeAudioUrlWithRunpod(mediaUrl, { timeoutMs: asrTimeoutMs });
-          if (!asr.ok) throw new Error(`RunPod ASR failed: ${asr.message} [${asr.code}]`);
+          if (asr.ok) {
+            const text = cleanText(asr.transcript || "");
+            if (!text || text.length < 10) {
+              throw new Error("Transcription returned no usable text. The video may have no speech.");
+            }
 
-          const text = cleanText(asr.transcript || "");
-          if (!text || text.length < 10) {
-            throw new Error("Transcription returned no usable text. The video may have no speech.");
+            source = truncate(text);
+            origin = "video";
+            console.log("[Video] Successfully processed video into", source.length, "chars of text (RunPod ASR)");
+          } else {
+            // Compatibility fallback: some ASR workers cannot ingest video URLs directly.
+            // Extract audio locally with ffmpeg, then send audio to RunPod ASR.
+            console.warn(
+              "[Video] RunPod ASR URL ingest failed; falling back to local ffmpeg audio extraction:",
+              asr.code,
+              asr.message
+            );
+
+            const { mkdtempSync, writeFileSync, readFileSync, unlinkSync, rmSync } = await import("fs");
+            const { tmpdir } = await import("os");
+            const { join } = await import("path");
+            const { spawn } = await import("child_process");
+
+            const tempDir = mkdtempSync(join(tmpdir(), "quickstud-video-"));
+            const videoPath = join(tempDir, `input${(video?.name || videoName || "").match(/\.[^.]+$/)?.[0] || ".mp4"}`);
+            const audioPath = join(tempDir, "audio.mp3");
+
+            try {
+              if (!isRemote && video) {
+                const videoBuffer = Buffer.from(await video.arrayBuffer());
+                writeFileSync(videoPath, videoBuffer);
+                console.log("[Video] Saved to:", videoPath);
+              }
+
+              console.log("[Video] Starting audio extraction with ffmpeg (fallback)...");
+              await new Promise<void>((resolve, reject) => {
+                const bin = "ffmpeg";
+                const ffmpeg = spawn(bin, [
+                  "-i",
+                  isRemote ? videoUrl : videoPath,
+                  "-vn",
+                  "-ac",
+                  "1",
+                  "-ar",
+                  "16000",
+                  "-b:a",
+                  "32k",
+                  "-y",
+                  audioPath,
+                ]);
+
+                let stderr = "";
+                ffmpeg.stderr.on("data", (data) => {
+                  stderr += data.toString();
+                });
+
+                ffmpeg.on("close", (code) => {
+                  if (code === 0) return resolve();
+                  reject(new Error(`FFmpeg failed with code ${code} (binary: ${bin}). ${stderr.slice(-200)}`));
+                });
+
+                ffmpeg.on("error", (err) => {
+                  reject(new Error(`Could not spawn ffmpeg: ${err.message}`));
+                });
+              });
+
+              const audioBuffer = readFileSync(audioPath);
+              console.log("[Video] Audio extracted:", audioBuffer.length, "bytes. Sending to RunPod ASR...");
+
+              const text = await transcribeBuffer(audioBuffer, "audio.mp3", "audio/mpeg");
+              const cleaned = cleanText(text || "");
+              if (!cleaned || cleaned.length < 10) {
+                throw new Error("Transcription returned no usable text. The video may have no speech.");
+              }
+
+              source = truncate(cleaned);
+              origin = "video";
+              console.log("[Video] Successfully processed video into", source.length, "chars of text (ffmpeg -> RunPod ASR)");
+            } finally {
+              try {
+                if (!isRemote) unlinkSync(videoPath);
+                unlinkSync(audioPath);
+                rmSync(tempDir, { recursive: true });
+              } catch (e) {
+                console.warn("[Video] Cleanup warning:", (e as any)?.message);
+              }
+            }
           }
-
-          source = truncate(text);
-          origin = "video";
-          console.log("[Video] Successfully processed video into", source.length, "chars of text (RunPod ASR)");
         } else {
           // Fallback path (legacy): extract audio server-side and transcribe.
           // This is slower and more likely to hit serverless limits.
