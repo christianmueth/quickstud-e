@@ -1108,6 +1108,8 @@ export async function POST(req: Request) {
       if (!userId) return NextResponse.redirect(new URL("/sign-in", req.url));
     }
 
+    const clerkUserId = userId ?? undefined;
+
     // In production we should not silently fall back if RunPod isn't configured.
     if (process.env.NODE_ENV === "production") {
       const missingEndpoint = !process.env.RUNPOD_ENDPOINT;
@@ -1498,41 +1500,103 @@ export async function POST(req: Request) {
       try {
         const u = new URL(urlStr);
         if (isYouTubeHostname(u.hostname)) {
+          const ytDiag: any = {
+            videoId: getYouTubeId(u),
+            captions: { attempted: false, ok: false, error: null as string | null },
+            asr: {
+              attempted: false,
+              ok: false,
+              error: null as string | null,
+              disabledByEnv: DISABLE_AUDIO_UPLOAD,
+              hasRunpodAsr: !!(process.env.RUNPOD_ASR_ENDPOINT || process.env.RUNPOD_ASR_ENDPOINT_ID),
+            },
+            vercel: {
+              VERCEL_ENV: process.env.VERCEL_ENV || null,
+              VERCEL_GIT_COMMIT_SHA: process.env.VERCEL_GIT_COMMIT_SHA || null,
+            },
+          };
+
           try {
             const yt = await extractFromYouTubeStrict(u);
-            source = truncate(yt.text); origin = "youtube";
+            source = truncate(yt.text);
+            origin = "youtube";
+            if (!source) throw new Error("YouTube extraction returned empty text");
           } catch (e: any) {
             // Production note: yt-dlp often isn't available on Vercel.
             // Fallback to ytdl-core caption track fetch (no external binary).
-            try {
-              const id = getYouTubeId(u);
-              if (id) {
+            const id = getYouTubeId(u);
+            if (id) {
+              ytDiag.captions.attempted = true;
+              try {
                 const text = await fetchYouTubeTranscriptViaYtdlCore(id);
                 if (text) {
                   source = truncate(text);
                   origin = "youtube";
+                  ytDiag.captions.ok = true;
                 }
+              } catch (capErr: any) {
+                ytDiag.captions.error = String(capErr?.message || capErr || "CAPTIONS_FAILED");
+              }
 
-                // If captions are unavailable, fall back to audio download + RunPod ASR.
-                // This avoids requiring yt-dlp/ffmpeg on Vercel.
-                if (!source && !DISABLE_AUDIO_UPLOAD) {
-                  const hasRunpodAsr = !!(process.env.RUNPOD_ASR_ENDPOINT || process.env.RUNPOD_ASR_ENDPOINT_ID);
-                  if (hasRunpodAsr) {
-                    console.log("[YouTube] Captions unavailable; downloading audio for ASR:", id);
-                    // Keep this conservative to avoid blowing serverless memory/time.
-                    const maxBytes = Number(process.env.YT_AUDIO_MAX_BYTES || 35_000_000);
+              // If captions are unavailable, fall back to audio download + RunPod ASR.
+              // This avoids requiring yt-dlp/ffmpeg on Vercel.
+              if (!source && !DISABLE_AUDIO_UPLOAD) {
+                const hasRunpodAsr = !!(process.env.RUNPOD_ASR_ENDPOINT || process.env.RUNPOD_ASR_ENDPOINT_ID);
+                if (hasRunpodAsr) {
+                  console.log("[YouTube] Captions unavailable; downloading audio for ASR:", id);
+                  // Keep this conservative to avoid blowing serverless memory/time.
+                  const maxBytes = Number(process.env.YT_AUDIO_MAX_BYTES || 35_000_000);
+                  ytDiag.asr.attempted = true;
+                  try {
                     const audio = await downloadYouTubeAudioBufferViaYtdlCore(id, maxBytes);
                     const asrText = await transcribeBuffer(audio.buf, audio.filename, audio.contentType);
                     if (asrText) {
                       source = truncate(asrText);
                       origin = "youtube";
+                      ytDiag.asr.ok = true;
                     }
+                  } catch (asrErr: any) {
+                    ytDiag.asr.error = String(asrErr?.message || asrErr || "ASR_FAILED");
                   }
                 }
               }
-            } catch {
-              // ignore
             }
+
+            // If we still don't have text for a YouTube URL, return an actionable error.
+            if (!source) {
+              if (ytDiag.asr.disabledByEnv) {
+                return NextResponse.json(
+                  {
+                    error: "YouTube captions were unavailable and audio transcription is disabled (DISABLE_AUDIO_UPLOAD=1).",
+                    code: "YT_AUDIO_DISABLED",
+                    diag: ytDiag,
+                  },
+                  { status: 400 }
+                );
+              }
+              if (!ytDiag.asr.hasRunpodAsr) {
+                return NextResponse.json(
+                  {
+                    error:
+                      "YouTube captions were unavailable and RunPod ASR is not configured in production. Set RUNPOD_ASR_ENDPOINT(_ID) and RUNPOD_ASR_API_KEY in Vercel env vars.",
+                    code: "RUNPOD_ASR_NOT_CONFIGURED",
+                    diag: ytDiag,
+                  },
+                  { status: 500 }
+                );
+              }
+              if (ytDiag.asr.attempted && ytDiag.asr.error) {
+                return NextResponse.json(
+                  {
+                    error: "YouTube captions were unavailable and audio transcription failed.",
+                    code: "YT_ASR_FAILED",
+                    diag: ytDiag,
+                  },
+                  { status: 400 }
+                );
+              }
+            }
+
             if (!source && STRICT_VIDEO) {
               return NextResponse.json(
                 { error: e?.message || "Failed to read YouTube captions.", code: "YT_NO_CAPTIONS" },
@@ -1568,8 +1632,8 @@ export async function POST(req: Request) {
         const text = await extractPdfTextFromBuffer(buf); 
         if (text) { 
           console.log("[Upload] PDF text extracted successfully");
-          source = truncate(text); 
-            const text = await transcribeBuffer(buf, "youtube.mp3", "audio/mpeg");
+          source = truncate(text);
+          origin = "pdf";
         } else {
           console.log("[Upload] PDF text extraction failed - empty result");
         }
@@ -1716,7 +1780,7 @@ export async function POST(req: Request) {
 
     // Ensure user
     const userRow = await prisma.user.upsert({
-      where: { clerkUserId: userId }, update: {}, create: { clerkUserId: userId },
+      where: { clerkUserId }, update: {}, create: { clerkUserId: clerkUserId! },
     });
 
     // Create deck
