@@ -14,7 +14,21 @@ export async function POST(req: Request) {
 
     // Mode B: JSON { audioUrl }
     if (ct.includes("application/json")) {
-      const body = (await req.json().catch(() => ({}))) as any;
+      // NOTE: Some clients/environments can cause req.json() to throw even when Content-Type is set.
+      // Read raw text and JSON.parse for maximum compatibility.
+      const bodyText = await req.text().catch(() => "");
+      let body: any = {};
+      try {
+        body = bodyText ? JSON.parse(bodyText) : {};
+      } catch {
+        return NextResponse.json(
+          {
+            error: "Invalid JSON body",
+            hint: "Send {\"audioUrl\":\"https://...\"} with Content-Type: application/json",
+          },
+          { status: 400 }
+        );
+      }
       url = String(body?.audioUrl || "").trim();
       if (!url) {
         return NextResponse.json({ error: "Missing audioUrl" }, { status: 400 });
