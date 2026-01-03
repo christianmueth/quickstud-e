@@ -106,6 +106,66 @@ function extractFirstJsonArray(s: string): string | null {
   return null;
 }
 
+async function fetchYouTubeTranscriptViaYtdlCore(id: string): Promise<string | null> {
+  try {
+    const ytdl = (await import("ytdl-core")) as any;
+    const info = await (ytdl.default ? ytdl.default.getInfo(id) : ytdl.getInfo(id));
+    const pr =
+      info.player_response ||
+      (typeof info.player_response === "string" ? JSON.parse(info.player_response) : info.player_response) ||
+      info.playerResponse;
+
+    const tracks = pr?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+    if (!tracks || !tracks.length) return null;
+
+    const track = tracks.find((t: any) => t.languageCode === "en") || tracks[0];
+    const baseUrl: string = track.baseUrl;
+
+    // Try JSON3
+    try {
+      const r = await fetch(baseUrl + "&fmt=json3");
+      if (r.ok) {
+        const j: any = await r.json();
+        const text = (j.events || [])
+          .map((ev: any) => (ev.segs || []).map((s: any) => s.utf8 || "").join(""))
+          .join(" ");
+        const cleaned = String(text || "").replace(/\s+/g, " ").trim();
+        if (cleaned) return cleaned;
+      }
+    } catch {
+      // ignore
+    }
+
+    // Fallback XML timedtext
+    try {
+      const r2 = await fetch(baseUrl);
+      if (r2.ok) {
+        const xml = await r2.text();
+        const matches = Array.from(xml.matchAll(/<text[^>]*>([^<]*)<\/text>/g));
+        const text = matches
+          .map((m: any) =>
+            String(m[1] || "")
+              .replace(/&amp;/g, "&")
+              .replace(/&#39;/g, "'")
+              .replace(/&quot;/g, '"')
+              .replace(/&gt;/g, ">")
+              .replace(/&lt;/g, "<")
+          )
+          .join(" ");
+        const cleaned = String(text || "").replace(/\s+/g, " ").trim();
+        if (cleaned) return cleaned;
+      }
+    } catch {
+      // ignore
+    }
+
+    return null;
+  } catch (e) {
+    console.warn("[YouTube] ytdl-core fallback failed:", (e as any)?.message || e);
+    return null;
+  }
+}
+
 async function extractFromYouTubeStrict(u: URL): Promise<{ title: string; text: string }> {
   const id = getYouTubeId(u);
   if (!id) throw new Error("Could not parse YouTube video ID.");
@@ -1404,7 +1464,26 @@ export async function POST(req: Request) {
             const yt = await extractFromYouTubeStrict(u);
             source = truncate(yt.text); origin = "youtube";
           } catch (e: any) {
-            if (STRICT_VIDEO) return NextResponse.json({ error: e?.message || "Failed to read YouTube captions.", code: "YT_NO_CAPTIONS" }, { status: 400 });
+            // Production note: yt-dlp often isn't available on Vercel.
+            // Fallback to ytdl-core caption track fetch (no external binary).
+            try {
+              const id = getYouTubeId(u);
+              if (id) {
+                const text = await fetchYouTubeTranscriptViaYtdlCore(id);
+                if (text) {
+                  source = truncate(text);
+                  origin = "youtube";
+                }
+              }
+            } catch {
+              // ignore
+            }
+            if (!source && STRICT_VIDEO) {
+              return NextResponse.json(
+                { error: e?.message || "Failed to read YouTube captions.", code: "YT_NO_CAPTIONS" },
+                { status: 400 }
+              );
+            }
           }
         } else {
           const web = await extractFromWebsite(u);
