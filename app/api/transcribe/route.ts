@@ -17,17 +17,43 @@ export async function POST(req: Request) {
       // NOTE: Some clients/environments can cause req.json() to throw even when Content-Type is set.
       // Read raw text and JSON.parse for maximum compatibility.
       const bodyText = await req.text().catch(() => "");
+      const includeDebug = process.env.ASR_DEBUG === "1";
       let body: any = {};
       try {
-        body = bodyText ? JSON.parse(bodyText) : {};
+        const trimmed = (bodyText || "").trim().replace(/^\uFEFF/, ""); // strip UTF-8 BOM
+        if (!trimmed) {
+          body = {};
+        } else {
+          body = JSON.parse(trimmed);
+        }
       } catch {
-        return NextResponse.json(
-          {
-            error: "Invalid JSON body",
-            hint: "Send {\"audioUrl\":\"https://...\"} with Content-Type: application/json",
-          },
-          { status: 400 }
-        );
+        // Fallback 1: try to extract the first JSON object substring
+        try {
+          const t = (bodyText || "").trim().replace(/^\uFEFF/, "");
+          const start = t.indexOf("{");
+          const end = t.lastIndexOf("}");
+          if (start >= 0 && end > start) {
+            body = JSON.parse(t.slice(start, end + 1));
+          } else {
+            // Fallback 2: accept URL-encoded bodies if a client sent them with wrong content-type
+            const params = new URLSearchParams(t);
+            body = Object.fromEntries(params.entries());
+          }
+        } catch {
+          return NextResponse.json(
+            {
+              error: "Invalid JSON body",
+              hint: "Send {\"audioUrl\":\"https://...\"} with Content-Type: application/json",
+              ...(includeDebug
+                ? {
+                    receivedLen: (bodyText || "").length,
+                    receivedStart: String(bodyText || "").slice(0, 160),
+                  }
+                : {}),
+            },
+            { status: 400 }
+          );
+        }
       }
       url = String(body?.audioUrl || "").trim();
       if (!url) {
