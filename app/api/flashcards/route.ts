@@ -173,7 +173,18 @@ async function downloadYouTubeAudioBufferViaYtdlCore(
   const ytdl = (await import("ytdl-core")) as any;
   const ytdlDefault = ytdl.default ?? ytdl;
 
-  const info = await (ytdlDefault.getInfo ? ytdlDefault.getInfo(id) : ytdl.getInfo(id));
+  const watchUrl = `https://www.youtube.com/watch?v=${id}`;
+  const requestOptions = {
+    headers: {
+      "User-Agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36",
+      "Accept-Language": "en-US,en;q=0.9",
+    },
+  };
+
+  const info = await (ytdlDefault.getInfo
+    ? ytdlDefault.getInfo(watchUrl, { requestOptions })
+    : ytdl.getInfo(watchUrl, { requestOptions }));
   const format = ytdlDefault.chooseFormat
     ? ytdlDefault.chooseFormat(info.formats, { quality: "highestaudio", filter: "audioonly" })
     : (ytdl.chooseFormat(info.formats, { quality: "highestaudio", filter: "audioonly" }) as any);
@@ -183,7 +194,11 @@ async function downloadYouTubeAudioBufferViaYtdlCore(
   const ext = contentType.includes("mp4") || contentType.includes("m4a") ? "m4a" : "webm";
   const filename = `youtube-${id}.${ext}`;
 
-  const stream = ytdlDefault(id, { quality: format.itag });
+  const stream = ytdlDefault(watchUrl, {
+    quality: format.itag,
+    requestOptions,
+    highWaterMark: 1 << 25,
+  });
 
   const chunks: Buffer[] = [];
   let total = 0;
@@ -1599,6 +1614,19 @@ export async function POST(req: Request) {
                 );
               }
               if (ytDiag.asr.attempted && ytDiag.asr.error) {
+                const errMsg = String(ytDiag.asr.error || "");
+                const looksLikeYouTubeBlocked = /status code:\s*\d+/i.test(errMsg) || /410|403|429/.test(errMsg);
+                if (looksLikeYouTubeBlocked) {
+                  return NextResponse.json(
+                    {
+                      error:
+                        "YouTube blocked server-side audio download from this deployment. Try a different video, or use an upload/transcript source instead.",
+                      code: "YT_AUDIO_DOWNLOAD_FAILED",
+                      diag: ytDiag,
+                    },
+                    { status: 400 }
+                  );
+                }
                 return NextResponse.json(
                   {
                     error: "YouTube captions were unavailable and audio transcription failed.",
