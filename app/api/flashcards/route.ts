@@ -545,11 +545,6 @@ async function transcribeAudioFile(file: File): Promise<string> {
   return transcribeBuffer(buf, file.name || "audio.mp3", file.type || "application/octet-stream");
 }
 
-// Transcribe a server-side audio buffer using OpenAI Whisper endpoint
-async function transcribeBufferWithOpenAI(buf: Buffer): Promise<string> {
-  return transcribeBuffer(buf, "audio.mp3", "audio/mpeg");
-}
-
 async function transcribeBuffer(buf: Buffer, filename: string, contentType: string): Promise<string> {
   // Prefer RunPod ASR (Whisper replacement) if configured.
   const hasRunpodAsr = !!(process.env.RUNPOD_ASR_ENDPOINT || process.env.RUNPOD_ASR_ENDPOINT_ID);
@@ -583,31 +578,10 @@ async function transcribeBuffer(buf: Buffer, filename: string, contentType: stri
     return t;
   }
 
-  // Fallback to OpenAI Whisper ONLY if explicitly allowed.
-  const allowOpenAIFallback = String(process.env.ASR_FALLBACK || "").toLowerCase() === "openai";
-  if (!allowOpenAIFallback) {
-    throw new Error(
-      "RunPod ASR is not configured. Set RUNPOD_ASR_ENDPOINT(_ID) and RUNPOD_ASR_API_KEY, or set ASR_FALLBACK=openai to allow Whisper fallback."
-    );
-  }
-  if (!process.env.OPENAI_API_KEY) throw new Error("Missing OPENAI_API_KEY (ASR_FALLBACK=openai requested)");
-  const form = new FormData();
-  form.append("model", "whisper-1");
-  const blob = new Blob([buf as any]);
-  form.append("file", blob as any, filename || "audio.mp3");
-  const tr = await fetch("https://api.openai.com/v1/audio/transcriptions", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
-    body: form,
-  });
-  if (!tr.ok) {
-    const errTxt = await tr.text().catch(() => "");
-    throw new Error(`Transcription failed: ${tr.status} ${errTxt}`);
-  }
-  const out = (await tr.json()) as { text?: string };
-  const text = cleanText(out.text || "");
-  if (!text) throw new Error("No speech recognized.");
-  return text;
+  // No OpenAI Whisper fallback: we run RunPod ASR only.
+  throw new Error(
+    "RunPod ASR is not configured. Set RUNPOD_ASR_ENDPOINT(_ID) and RUNPOD_ASR_API_KEY (or RUNPOD_ASR_API_KEY/RUNPOD_API_KEY) in Vercel env vars."
+  );
 }
 
 // -------------------- cards --------------------
@@ -1441,108 +1415,9 @@ export async function POST(req: Request) {
             }
           }
         } else {
-          // Fallback path (legacy): extract audio server-side and transcribe.
-          // This is slower and more likely to hit serverless limits.
-          const allowOpenAIFallback = String(process.env.ASR_FALLBACK || "").toLowerCase() === "openai";
-          if (!allowOpenAIFallback) {
-            throw new Error(
-              "RunPod ASR is not configured. Set RUNPOD_ASR_ENDPOINT(_ID) and RUNPOD_ASR_API_KEY, or set ASR_FALLBACK=openai to allow Whisper fallback."
-            );
-          }
-          if (!process.env.OPENAI_API_KEY) {
-            throw new Error("Missing OPENAI_API_KEY (ASR_FALLBACK=openai requested)");
-          }
-        
-          // Save video to temp file
-          const { mkdtempSync, writeFileSync, readFileSync, unlinkSync, rmSync } = await import("fs");
-          const { tmpdir } = await import("os");
-          const { join } = await import("path");
-          const { spawn } = await import("child_process");
-
-          const tempDir = mkdtempSync(join(tmpdir(), "quickstud-video-"));
-          const videoPath = join(tempDir, `input${(video?.name || videoName || "").match(/\.[^.]+$/)?.[0] || ".mp4"}`);
-          const audioPath = join(tempDir, "audio.mp3");
-
-          if (!isRemote && video) {
-            // Write uploaded video file to disk
-            const videoBuffer = Buffer.from(await video.arrayBuffer());
-            writeFileSync(videoPath, videoBuffer);
-            console.log("[Video] Saved to:", videoPath);
-          }
-
-          // Extract audio using ffmpeg (system binary)
-          console.log("[Video] Starting audio extraction with ffmpeg...");
-          await new Promise<void>((resolve, reject) => {
-            const bin = "ffmpeg";
-            console.log("[Video] Using system ffmpeg");
-
-            const ffmpeg = spawn(bin, [
-              "-i",
-              isRemote ? videoUrl : videoPath,
-              "-vn", // no video
-              "-ac",
-              "1", // mono
-              "-ar",
-              "16000", // 16 kHz
-              "-b:a",
-              "32k", // 32 kbps
-              "-y",
-              audioPath,
-            ]);
-
-            let stderr = "";
-            ffmpeg.stderr.on("data", (data) => {
-              stderr += data.toString();
-            });
-
-            ffmpeg.on("close", (code) => {
-              if (code === 0) {
-                console.log("[Video] Audio extracted successfully");
-                resolve();
-              } else {
-                console.error("[Video] FFmpeg stderr:", stderr);
-                reject(new Error(`FFmpeg failed with code ${code} (binary: ${bin}). ${stderr.slice(-200)}`));
-              }
-            });
-
-            ffmpeg.on("error", (err) => {
-              console.error("[Video] FFmpeg spawn error:", err);
-              reject(new Error(`Could not spawn ffmpeg: ${err.message}`));
-            });
-          });
-
-          // Transcribe extracted audio
-          const audioBuffer = readFileSync(audioPath);
-          console.log("[Video] Audio extracted:", audioBuffer.length, "bytes. Sending to Whisper...");
-
-          // OpenAI Whisper has a 25MB file size limit for audio
-          if (audioBuffer.length > 25 * 1024 * 1024) {
-            throw new Error(
-              "Extracted audio exceeds 25MB limit for Whisper API. Try a shorter video or use YouTube URL with captions."
-            );
-          }
-
-          const text = await transcribeBufferWithOpenAI(audioBuffer);
-          console.log("[Video] Transcription completed:", text.length, "chars");
-          console.log("[Video] Sample:", text.slice(0, 200));
-
-          // Cleanup
-          try {
-            if (!isRemote) unlinkSync(videoPath);
-            unlinkSync(audioPath);
-            rmSync(tempDir, { recursive: true });
-            console.log("[Video] Cleanup complete");
-          } catch (e) {
-            console.warn("[Video] Cleanup warning:", (e as any)?.message);
-          }
-
-          if (!text || text.length < 10) {
-            throw new Error("Transcription returned no usable text. The video may have no speech.");
-          }
-
-          source = truncate(text);
-          origin = "video";
-          console.log("[Video] Successfully processed video into", source.length, "chars of text");
+          throw new Error(
+            "RunPod ASR is not configured. Upload audio/video only works when RUNPOD_ASR_ENDPOINT(_ID) and RUNPOD_ASR_API_KEY are set."
+          );
         }
       } catch (e: any) {
         console.error("[Video] Processing failed:", e?.message || e);
