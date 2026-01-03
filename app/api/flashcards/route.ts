@@ -508,13 +508,25 @@ async function transcribeBuffer(buf: Buffer, filename: string, contentType: stri
   // Prefer RunPod ASR (Whisper replacement) if configured.
   const hasRunpodAsr = !!(process.env.RUNPOD_ASR_ENDPOINT || process.env.RUNPOD_ASR_ENDPOINT_ID);
   if (hasRunpodAsr) {
+    const hasBlobToken = !!process.env.BLOB_READ_WRITE_TOKEN;
+    if (!hasBlobToken) {
+      throw new Error(
+        "Vercel Blob is not configured for server-side uploads. Set BLOB_READ_WRITE_TOKEN in production so the server can upload audio for ASR."
+      );
+    }
     const safeName = (filename || "audio.mp3").replace(/[^a-zA-Z0-9._-]+/g, "_");
     const pathname = `uploads/audio/${Date.now()}-${safeName}`;
-    const blob = await put(pathname, new Blob([buf as any]), {
-      access: "public",
-      contentType: contentType || "application/octet-stream",
-      addRandomSuffix: true,
-    });
+    let blob: { url: string };
+    try {
+      blob = await put(pathname, new Blob([buf as any]), {
+        access: "public",
+        contentType: contentType || "application/octet-stream",
+        addRandomSuffix: true,
+      });
+    } catch (e: any) {
+      const msg = String(e?.message || e || "BLOB_UPLOAD_FAILED");
+      throw new Error(`Vercel Blob upload failed: ${msg}`);
+    }
 
     const asr = await transcribeAudioUrlWithRunpod(blob.url);
     if (!asr.ok) {
@@ -1509,6 +1521,7 @@ export async function POST(req: Request) {
               error: null as string | null,
               disabledByEnv: DISABLE_AUDIO_UPLOAD,
               hasRunpodAsr: !!(process.env.RUNPOD_ASR_ENDPOINT || process.env.RUNPOD_ASR_ENDPOINT_ID),
+              hasBlobToken: !!process.env.BLOB_READ_WRITE_TOKEN,
             },
             vercel: {
               VERCEL_ENV: process.env.VERCEL_ENV || null,
