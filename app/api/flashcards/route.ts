@@ -1262,7 +1262,23 @@ export async function POST(req: Request) {
     const hasAudioUrl = !!audioUrl;
     if (!source && !urlStr && !file && !video && !audioFile && !hasAudioUrl && !subtitle && !hasRemoteVideo && !hasDocUrl) {
       return NextResponse.json(
-        { error: "Please provide content through text, URL, PDF, PPTX, video, or audio", code: "NO_CONTENT" },
+        {
+          error: "Please provide content through text, URL, PDF, PPTX, video, or audio",
+          code: "NO_CONTENT",
+          inputs: {
+            hasSource: !!String(form.get("source") || "").trim(),
+            hasUrl: !!urlStr,
+            hasFile: !!file,
+            hasVideo: !!video || !!videoUrl,
+            hasSubtitle: !!subtitle,
+            hasAudio: !!audioFile || !!audioUrl,
+            hasDocUrl: !!docUrl,
+          },
+          vercel: {
+            VERCEL_ENV: process.env.VERCEL_ENV || null,
+            VERCEL_GIT_COMMIT_SHA: process.env.VERCEL_GIT_COMMIT_SHA || null,
+          },
+        },
         { status: 400 }
       );
     }
