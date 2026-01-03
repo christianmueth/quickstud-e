@@ -1218,7 +1218,8 @@ export async function POST(req: Request) {
       hasFile: !!file,
       hasVideo: !!video,
       hasSubtitle: !!subtitle,
-      hasAudio: !!audioFile,
+      hasAudio: !!audioFile || !!audioUrl,
+      audioUrl: audioUrl ? "[provided]" : undefined,
       videoUrl: videoUrl || undefined,
       videoName: videoName || undefined,
       fileSize: file?.size,
@@ -1237,7 +1238,7 @@ export async function POST(req: Request) {
     };
 
     // Optional: Block audio/video ingestion to avoid transcription costs
-    if (DISABLE_AUDIO_UPLOAD && (audioFile || video || getLast("videoUrl").trim())) {
+    if (DISABLE_AUDIO_UPLOAD && (audioFile || audioUrl || video || getLast("videoUrl").trim())) {
       return NextResponse.json(
         { error: "Audio/video uploads are disabled in this environment.", code: "AUDIO_DISABLED" },
         { status: 400 }
@@ -1258,7 +1259,8 @@ export async function POST(req: Request) {
     // Validate content
     const hasRemoteVideo = !!videoUrl;
     const hasDocUrl = !!docUrl;
-    if (!source && !urlStr && !file && !video && !audioFile && !subtitle && !hasRemoteVideo && !hasDocUrl) {
+    const hasAudioUrl = !!audioUrl;
+    if (!source && !urlStr && !file && !video && !audioFile && !hasAudioUrl && !subtitle && !hasRemoteVideo && !hasDocUrl) {
       return NextResponse.json(
         { error: "Please provide content through text, URL, PDF, PPTX, video, or audio", code: "NO_CONTENT" },
         { status: 400 }
