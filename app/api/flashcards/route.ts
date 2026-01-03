@@ -191,6 +191,98 @@ async function fetchYouTubeTranscriptViaTimedText(id: string): Promise<string | 
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36";
   const headers = { "User-Agent": ua, "Accept-Language": "en-US,en;q=0.9" };
 
+  // First try to discover which caption tracks exist (language + manual vs ASR).
+  // This dramatically improves success vs hardcoding lang=en.
+  type Track = { lang: string; name?: string; isAsr: boolean };
+  const listUrls = [
+    `https://video.google.com/timedtext?type=list&v=${encodeURIComponent(id)}`,
+    `https://www.youtube.com/api/timedtext?type=list&v=${encodeURIComponent(id)}`,
+  ];
+
+  async function fetchTrackList(): Promise<Track[]> {
+    for (const listUrl of listUrls) {
+      try {
+        const r = await fetch(listUrl, { headers });
+        if (!r.ok) continue;
+        const xml = await r.text();
+        if (!xml || xml.trim().length < 10) continue;
+
+        const tracks: Track[] = [];
+        const re = /<track\b([^>]*)\/?>(?:<\/track>)?/gi;
+        for (const m of xml.matchAll(re)) {
+          const attrs = String(m[1] || "");
+          const lang = (attrs.match(/\blang_code="([^"]+)"/i)?.[1] || "").trim();
+          if (!lang) continue;
+          const name = (attrs.match(/\bname="([^"]*)"/i)?.[1] || "").trim();
+          const kind = (attrs.match(/\bkind="([^"]+)"/i)?.[1] || "").trim().toLowerCase();
+          tracks.push({ lang, name: name || undefined, isAsr: kind === "asr" });
+        }
+
+        if (tracks.length) return tracks;
+      } catch {
+        // ignore and try next list url
+      }
+    }
+
+    return [];
+  }
+
+  function buildTimedtextUrl(track: Track, fmt: "vtt" | "xml"): string {
+    const base = `https://www.youtube.com/api/timedtext?v=${encodeURIComponent(id)}&lang=${encodeURIComponent(track.lang)}`;
+    const name = track.name ? `&name=${encodeURIComponent(track.name)}` : "";
+    const kind = track.isAsr ? "&kind=asr" : "";
+    const format = fmt === "vtt" ? "&fmt=vtt" : "";
+    return `${base}${name}${kind}${format}`;
+  }
+
+  const tracks = await fetchTrackList();
+  const preferred: Track[] = [];
+
+  if (tracks.length) {
+    const by = (lang: string, isAsr: boolean) => tracks.filter((t) => t.lang === lang && t.isAsr === isAsr);
+    // Prefer English manual captions, then English ASR.
+    preferred.push(...by("en", false), ...by("en", true));
+    // Then any manual captions, then any ASR captions.
+    preferred.push(...tracks.filter((t) => t.lang !== "en" && !t.isAsr));
+    preferred.push(...tracks.filter((t) => t.lang !== "en" && t.isAsr));
+
+    // Fetch each track (try VTT first, then XML)
+    for (const track of preferred) {
+      for (const fmt of ["vtt", "xml"] as const) {
+        const url = buildTimedtextUrl(track, fmt);
+        try {
+          const r = await fetch(url, { headers });
+          if (!r.ok) continue;
+          const contentType = (r.headers.get("content-type") || "").toLowerCase();
+          const body = await r.text();
+          if (!body || body.trim().length < 10) continue;
+
+          if (contentType.includes("text/vtt") || /^WEBVTT/i.test(body.trim())) {
+            const cleaned = parseSubtitleBuffer(Buffer.from(body, "utf8"));
+            if (cleaned) return cleaned;
+            continue;
+          }
+
+          const matches = Array.from(body.matchAll(/<text[^>]*>([^<]*)<\/text>/g));
+          const text = matches
+            .map((m: any) =>
+              String(m[1] || "")
+                .replace(/&amp;/g, "&")
+                .replace(/&#39;/g, "'")
+                .replace(/&quot;/g, '"')
+                .replace(/&gt;/g, ">")
+                .replace(/&lt;/g, "<")
+            )
+            .join(" ");
+          const cleaned = cleanText(text || "");
+          if (cleaned) return cleaned;
+        } catch {
+          // ignore and try next
+        }
+      }
+    }
+  }
+
   const candidates = [
     // Manual captions
     `https://www.youtube.com/api/timedtext?v=${encodeURIComponent(id)}&lang=en&fmt=vtt`,
@@ -1603,38 +1695,34 @@ export async function POST(req: Request) {
                 }
               }
 
-              // If captions are unavailable from Vercel, try offloading YouTube download+ASR to RunPod.
-              // This is the only reliable way to make paste-a-YouTube-link work for videos that block Vercel IPs.
+              // Optional fallback: offload YouTube download+ASR to RunPod (only if configured).
+              // If you don't want a separate RunPod endpoint, leave these env vars unset and we'll skip this.
               if (!source) {
-                ytDiag.runpodYoutube.attempted = true;
-                const ytJob = await transcribeYoutubeUrlWithRunpod(u.toString()).catch((err: any) => ({
-                  ok: false,
-                  reason: "EXCEPTION",
-                  message: String(err?.message || err || "RUNPOD_YOUTUBE_FAILED"),
-                }));
-
-                if ((ytJob as any).ok === true) {
-                  source = truncate((ytJob as any).transcript);
-                  origin = "youtube";
-                  ytDiag.runpodYoutube.ok = true;
-                } else {
-                  ytDiag.runpodYoutube.error = String((ytJob as any)?.message || (ytJob as any)?.reason || "RUNPOD_YOUTUBE_FAILED");
-                  ytDiag.runpodYoutube.notConfigured = (ytJob as any)?.reason === "NOT_CONFIGURED";
-                }
-              }
-
-              // If the RunPod YouTube worker isn't configured, fail loudly with a specific code.
-              // Otherwise users see a confusing "YouTube blocked" message even though the fix is env vars.
-              if (!source && ytDiag.runpodYoutube.attempted && ytDiag.runpodYoutube.notConfigured) {
-                return NextResponse.json(
-                  {
-                    error:
-                      "RunPod YouTube worker is not configured. Set RUNPOD_YOUTUBE_ENDPOINT_ID and RUNPOD_YOUTUBE_API_KEY (or reuse RUNPOD_API_KEY) in Vercel env vars.",
-                    code: "RUNPOD_YOUTUBE_NOT_CONFIGURED",
-                    diag: ytDiag,
-                  },
-                  { status: 500 }
+                const hasRunpodYoutubeEndpoint = !!(
+                  (process.env.RUNPOD_YOUTUBE_ENDPOINT || "").trim() || (process.env.RUNPOD_YOUTUBE_ENDPOINT_ID || "").trim()
                 );
+                const hasRunpodYoutubeKey = !!(
+                  (process.env.RUNPOD_YOUTUBE_API_KEY || "").trim() || (process.env.RUNPOD_API_KEY || "").trim()
+                );
+
+                if (hasRunpodYoutubeEndpoint && hasRunpodYoutubeKey) {
+                  ytDiag.runpodYoutube.attempted = true;
+                  const ytJob = await transcribeYoutubeUrlWithRunpod(u.toString()).catch((err: any) => ({
+                    ok: false,
+                    reason: "EXCEPTION",
+                    message: String(err?.message || err || "RUNPOD_YOUTUBE_FAILED"),
+                  }));
+
+                  if ((ytJob as any).ok === true) {
+                    source = truncate((ytJob as any).transcript);
+                    origin = "youtube";
+                    ytDiag.runpodYoutube.ok = true;
+                  } else {
+                    ytDiag.runpodYoutube.error = String(
+                      (ytJob as any)?.message || (ytJob as any)?.reason || "RUNPOD_YOUTUBE_FAILED"
+                    );
+                  }
+                }
               }
 
               // If captions are unavailable, fall back to audio download + RunPod ASR.
