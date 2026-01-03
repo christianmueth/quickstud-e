@@ -183,6 +183,59 @@ async function fetchYouTubeTranscriptViaYtdlCore(id: string): Promise<string | n
   }
 }
 
+async function fetchYouTubeTranscriptViaTimedText(id: string): Promise<string | null> {
+  // Direct caption fetch that avoids ytdl-core parsing and avoids audio downloads.
+  // Works when captions (including auto captions) are available via timedtext.
+  const ua =
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36";
+  const headers = { "User-Agent": ua, "Accept-Language": "en-US,en;q=0.9" };
+
+  const candidates = [
+    // Manual captions
+    `https://www.youtube.com/api/timedtext?v=${encodeURIComponent(id)}&lang=en&fmt=vtt`,
+    `https://www.youtube.com/api/timedtext?v=${encodeURIComponent(id)}&lang=en`,
+    // Auto captions (ASR)
+    `https://www.youtube.com/api/timedtext?v=${encodeURIComponent(id)}&lang=en&kind=asr&fmt=vtt`,
+    `https://www.youtube.com/api/timedtext?v=${encodeURIComponent(id)}&lang=en&kind=asr`,
+  ];
+
+  for (const url of candidates) {
+    try {
+      const r = await fetch(url, { headers });
+      if (!r.ok) continue;
+      const contentType = (r.headers.get("content-type") || "").toLowerCase();
+      const body = await r.text();
+      if (!body || body.trim().length < 10) continue;
+
+      // If VTT, reuse our subtitle parsing.
+      if (contentType.includes("text/vtt") || /^WEBVTT/i.test(body.trim())) {
+        const cleaned = parseSubtitleBuffer(Buffer.from(body, "utf8"));
+        if (cleaned) return cleaned;
+        continue;
+      }
+
+      // XML timedtext
+      const matches = Array.from(body.matchAll(/<text[^>]*>([^<]*)<\/text>/g));
+      const text = matches
+        .map((m: any) =>
+          String(m[1] || "")
+            .replace(/&amp;/g, "&")
+            .replace(/&#39;/g, "'")
+            .replace(/&quot;/g, '"')
+            .replace(/&gt;/g, ">")
+            .replace(/&lt;/g, "<")
+        )
+        .join(" ");
+      const cleaned = cleanText(text || "");
+      if (cleaned) return cleaned;
+    } catch {
+      // ignore and try next
+    }
+  }
+
+  return null;
+}
+
 async function downloadYouTubeAudioBufferViaYtdlCore(
   id: string,
   maxBytes: number
@@ -280,6 +333,17 @@ async function extractFromYouTubeStrict(u: URL): Promise<{ title: string; text: 
     }
   } catch (err) {
     console.warn("[YouTube] youtube-transcript library failed:", (err as any)?.message || err);
+  }
+
+  // 2a) Direct timedtext endpoints (manual captions or auto captions)
+  try {
+    const tt = await fetchYouTubeTranscriptViaTimedText(id);
+    if (tt) {
+      console.log("[YouTube] timedtext captions succeeded");
+      return { title: `YouTube ${id}`, text: cleanText(tt) };
+    }
+  } catch (err) {
+    console.warn("[YouTube] timedtext captions failed:", (err as any)?.message || err);
   }
 
   // 1a) Try scraping the watch page HTML for ytInitialPlayerResponse -> captions
@@ -1521,6 +1585,20 @@ export async function POST(req: Request) {
                 }
               } catch (capErr: any) {
                 ytDiag.captions.error = String(capErr?.message || capErr || "CAPTIONS_FAILED");
+              }
+
+              // Additional fallback: direct timedtext endpoints (manual or auto captions)
+              if (!source) {
+                try {
+                  const tt = await fetchYouTubeTranscriptViaTimedText(id);
+                  if (tt) {
+                    source = truncate(tt);
+                    origin = "youtube";
+                    ytDiag.captions.ok = true;
+                  }
+                } catch (capErr: any) {
+                  ytDiag.captions.error = String(capErr?.message || capErr || "CAPTIONS_FAILED");
+                }
               }
 
               // If captions are unavailable, fall back to audio download + RunPod ASR.
