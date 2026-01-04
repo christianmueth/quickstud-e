@@ -48,6 +48,16 @@ export default function CreateForm() {
     return nm.endsWith(".mp3") || nm.endsWith(".m4a") || nm.endsWith(".wav") || nm.endsWith(".ogg") || nm.endsWith(".webm");
   }
 
+  function isYouTubeUrl(raw: string): boolean {
+    try {
+      const u = new URL(raw);
+      const host = u.hostname.toLowerCase();
+      return host === "youtube.com" || host === "www.youtube.com" || host === "m.youtube.com" || host === "youtu.be";
+    } catch {
+      return false;
+    }
+  }
+
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (pending) return;
@@ -57,6 +67,14 @@ export default function CreateForm() {
     setPending(true);
 
     try {
+      // Option 1: Disable "paste a YouTube link" ingestion for reliability.
+      if (contentType === "url" && isYouTubeUrl(url)) {
+        toast.error(
+          "YouTube links aren’t supported right now. Please upload the audio/video file (mp3/m4a/mp4) or upload captions (.srt/.vtt)."
+        );
+        return;
+      }
+
       // Check file sizes for PDF/PPTX only (videos can be any size via Blob upload)
       const fileInput = form.querySelector<HTMLInputElement>('input[name="file"]');
       const pdfOrPptx = fileInput?.files?.[0];
@@ -437,7 +455,7 @@ export default function CreateForm() {
             Sample
           </button>
         </div>
-        <p className="text-xs text-gray-500 mt-1">If the video has captions but the app doesn't detect them, download/upload the subtitle file (.srt or .vtt) instead.</p>
+        <p className="text-xs text-gray-500 mt-1">YouTube links are currently disabled. For videos, upload audio/video (mp3/m4a/mp4) or captions (.srt/.vtt).</p>
       </div>
 
       {/* Text input */}

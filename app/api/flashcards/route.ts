@@ -19,6 +19,9 @@ const DEFAULT_CARD_COUNT = 20;
 const STRICT_VIDEO = process.env.STRICT_VIDEO === "1";
 // Cost guardrails
 const DISABLE_AUDIO_UPLOAD = process.env.DISABLE_AUDIO_UPLOAD === "1";
+// Option 1: Disable "paste YouTube URL" ingestion by default for reliability.
+// Set DISABLE_YOUTUBE_URLS=0 to re-enable.
+const DISABLE_YOUTUBE_URLS = process.env.DISABLE_YOUTUBE_URLS !== "0";
 const OPENAI_MAX_OUTPUT_TOKENS = Number(process.env.OPENAI_MAX_OUTPUT_TOKENS || 1200);
 const MAX_DECKS_PER_DAY = Number(process.env.MAX_DECKS_PER_DAY || 50);
 
@@ -1676,6 +1679,19 @@ export async function POST(req: Request) {
       try {
         const u = new URL(urlStr);
         if (isYouTubeHostname(u.hostname)) {
+          if (DISABLE_YOUTUBE_URLS) {
+            return NextResponse.json(
+              {
+                error:
+                  "YouTube links aren’t supported right now. Please upload the audio/video file (mp3/m4a/mp4) or upload captions (.srt/.vtt).",
+                code: "YT_URL_DISABLED",
+                traceId,
+                url: u.toString(),
+              },
+              { status: 400 }
+            );
+          }
+
           const ytDiag: any = {
             videoId: getYouTubeId(u),
             captions: { attempted: false, ok: false, error: null as string | null },
