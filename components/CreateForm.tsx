@@ -177,7 +177,7 @@ export default function CreateForm() {
 
           fd.append("videoUrl", blob.url);
           fd.append("videoName", videoFile.name || "video.mp4");
-          toast.success("Video uploaded. Processing may take up to 5 minutes. YouTube URLs are much faster!");
+          toast.success("Video uploaded. Processing may take up to 5 minutes.");
         } else {
           // Small enough to send directly
           console.log("[Client] Video small enough, sending directly in request");
@@ -189,8 +189,6 @@ export default function CreateForm() {
       // Show appropriate processing message based on content type
       if (contentType === "video") {
         // Already shown above for video
-      } else if (contentType === "url" && url.includes("youtube.com")) {
-        toast.info("Processing YouTube video...");
       } else {
         toast.info("Processing...");
       }
@@ -223,50 +221,9 @@ export default function CreateForm() {
           return;
         }
 
-        if (j?.code === "YT_AUDIO_DOWNLOAD_FAILED") {
+        if (j?.code === "YT_URL_DISABLED") {
           toast.error(
-            `YouTube blocked server-side audio download. Use Subtitle upload (.srt/.vtt) or upload the video/audio file (mp3/m4a) in the Video tab. For reliable paste-a-link when captions aren’t accessible from Vercel, configure an external ingest worker (YT_ASR_WORKER_URL).${tid ? ` (traceId: ${tid})` : ""}`
-          );
-          return;
-        }
-
-        if (j?.code === "YT_ASR_WORKER_FAILED") {
-          toast.error(
-            `External YouTube ASR worker failed. Check its logs/config (YT_ASR_WORKER_URL / YT_ASR_WORKER_KEY). As a workaround upload subtitle or audio.${tid ? ` (traceId: ${tid})` : ""}`
-          );
-          return;
-        }
-
-        if (j?.code === "RUNPOD_YOUTUBE_NOT_CONFIGURED") {
-          toast.error(
-            `Paste-a-link needs the RunPod YouTube worker configured. Set RUNPOD_YOUTUBE_ENDPOINT_ID and RUNPOD_YOUTUBE_API_KEY in Vercel env vars (or reuse RUNPOD_API_KEY).${tid ? ` (traceId: ${tid})` : ""}`
-          );
-          return;
-        }
-
-        if (j?.code === "RUNPOD_YOUTUBE_FAILED") {
-          const d = j?.diag?.runpodYoutube?.detail;
-          const reason = d?.reason ? String(d.reason) : null;
-          const httpStatus = typeof d?.httpStatus === "number" ? d.httpStatus : null;
-          const jobId = d?.id ? String(d.id) : null;
-          const detailMsg = d?.message ? String(d.message) : null;
-          const detailBits = [
-            reason ? `reason=${reason}` : null,
-            httpStatus ? `http=${httpStatus}` : null,
-            jobId ? `jobId=${jobId}` : null,
-          ].filter(Boolean);
-          const detailLine = detailBits.length ? ` (${detailBits.join(", ")})` : "";
-          const more = detailMsg ? ` — ${detailMsg}` : "";
-
-          toast.error(
-            `RunPod YouTube worker failed${detailLine}${more}. Check the worker logs on RunPod; as a workaround upload audio (mp3/m4a) instead.${tid ? ` (traceId: ${tid})` : ""}`
-          );
-          return;
-        }
-
-        if (j?.code === "RUNPOD_YOUTUBE_MISCONFIGURED") {
-          toast.error(
-            `RunPod YouTube is misconfigured: it looks like RUNPOD_YOUTUBE_ENDPOINT(_ID) points to your Whisper/ASR endpoint. Set RUNPOD_ASR_ENDPOINT_ID to your Whisper endpoint, and configure a separate YouTube ingest worker (RUNPOD_YOUTUBE_ENDPOINT_ID) for paste-a-link.${tid ? ` (traceId: ${tid})` : ""}`
+            `YouTube links aren’t supported right now. Please upload the audio/video file (mp3/m4a/mp4) or upload captions (.srt/.vtt).${tid ? ` (traceId: ${tid})` : ""}`
           );
           return;
         }
@@ -410,7 +367,7 @@ export default function CreateForm() {
             }
           }}
         >
-          <option value="url">Website or YouTube URL</option>
+          <option value="url">Website URL</option>
           <option value="text">Paste text</option>
           <option value="pdf">Upload PPTX or PDF</option>
           <option value="subtitle">Upload subtitles (SRT/VTT)</option>
@@ -420,7 +377,7 @@ export default function CreateForm() {
 
       {/* URL input */}
       <div className={contentType === "url" ? "" : "hidden"}>
-        <label className="text-sm font-medium">Website or YouTube URL</label>
+        <label className="text-sm font-medium">Website URL</label>
         <div className="flex gap-2 items-stretch">
           <input
             ref={urlRef}
@@ -446,16 +403,8 @@ export default function CreateForm() {
           >
             Paste
           </button>
-          <button
-            type="button"
-            className="px-3 whitespace-nowrap border rounded"
-            onClick={() => setUrl("https://www.youtube.com/watch?v=yy989li6xgY")}
-            title="Use sample YouTube URL"
-          >
-            Sample
-          </button>
         </div>
-        <p className="text-xs text-gray-500 mt-1">YouTube links are currently disabled. For videos, upload audio/video (mp3/m4a/mp4) or captions (.srt/.vtt).</p>
+        <p className="text-xs text-gray-500 mt-1">Paste a website URL. For videos, upload audio/video (mp3/m4a/mp4) or captions (.srt/.vtt).</p>
       </div>
 
       {/* Text input */}
@@ -580,9 +529,7 @@ export default function CreateForm() {
             Clear
           </button>
         </div>
-        <p className="text-xs text-gray-500">
-          Download subtitles from YouTube (⋮ menu → "Show transcript" → copy) or upload .srt/.vtt files here.
-        </p>
+        <p className="text-xs text-gray-500">Upload a subtitle file (.srt or .vtt) from your source.</p>
       </div>
 
       {/* Video upload (server may disable) */}
@@ -593,7 +540,7 @@ export default function CreateForm() {
         <div className="mb-2 border-l-4 border-orange-500 bg-orange-50 p-3 rounded">
           <p className="text-sm font-semibold text-orange-800">⚠️ Uploads are slower and cost the website API credits</p>
           <p className="text-xs text-orange-700 mt-1">
-            Processing can take a few minutes. If YouTube URL import is blocked, download the audio (mp3/m4a) and upload it here.
+            Processing can take a few minutes. Uploading audio (mp3/m4a) is usually faster than video.
           </p>
         </div>
         
