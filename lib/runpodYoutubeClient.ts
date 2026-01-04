@@ -81,9 +81,13 @@ function extractTranscriptFromRunpodOutput(output: any): string | null {
     root?.transcription,
     root?.text,
     root?.output_text,
-    root?.result,
+    // Common nested shapes
+    root?.result?.transcript,
+    root?.result?.transcription,
+    root?.result?.text,
     root?.data?.transcript,
     root?.data?.text,
+    root?.result,
     root,
   ];
 
