@@ -202,7 +202,14 @@ export default function CreateForm() {
 
         if (j?.code === "YT_AUDIO_DOWNLOAD_FAILED") {
           toast.error(
-            "YouTube blocked server-side audio download. Use Subtitle upload (.srt/.vtt) or upload the video/audio file (mp3/m4a) in the Video tab."
+            "YouTube blocked server-side audio download. Use Subtitle upload (.srt/.vtt) or upload the video/audio file (mp3/m4a) in the Video tab. For reliable paste-a-link when captions aren’t accessible from Vercel, configure an external ingest worker (YT_ASR_WORKER_URL)."
+          );
+          return;
+        }
+
+        if (j?.code === "YT_ASR_WORKER_FAILED") {
+          toast.error(
+            "External YouTube ASR worker failed. Check its logs/config (YT_ASR_WORKER_URL / YT_ASR_WORKER_KEY). As a workaround upload subtitle or audio."
           );
           return;
         }

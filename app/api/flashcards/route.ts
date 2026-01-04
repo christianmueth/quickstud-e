@@ -6,6 +6,7 @@ import { callLLMResult } from "@/lib/aiClient";
 import { put } from "@vercel/blob";
 import { transcribeAudioUrlWithRunpod } from "@/lib/asrClient";
 import { transcribeYoutubeUrlWithRunpod } from "@/lib/runpodYoutubeClient";
+import { transcribeYoutubeViaAsrWorker } from "@/lib/youtubeAsrWorkerClient";
 
 export const runtime = "nodejs";         // node runtime to allow larger bodies locally
 export const dynamic = "force-dynamic";
@@ -1677,6 +1678,7 @@ export async function POST(req: Request) {
           const ytDiag: any = {
             videoId: getYouTubeId(u),
             captions: { attempted: false, ok: false, error: null as string | null },
+            asrWorker: { attempted: false, ok: false, error: null as string | null, configured: false },
             runpodYoutube: { attempted: false, ok: false, error: null as string | null, notConfigured: false },
             asr: {
               attempted: false,
@@ -1725,6 +1727,27 @@ export async function POST(req: Request) {
                   }
                 } catch (capErr: any) {
                   ytDiag.captions.error = String(capErr?.message || capErr || "CAPTIONS_FAILED");
+                }
+              }
+
+              // If captions are unavailable from Vercel, optionally offload YouTube download+ASR to an external worker.
+              // This is designed for a stable non-Vercel environment (e.g., RunPod Pod / VPS).
+              if (!source) {
+                ytDiag.asrWorker.configured = !!(process.env.YT_ASR_WORKER_URL || "").trim();
+                if (ytDiag.asrWorker.configured) {
+                  ytDiag.asrWorker.attempted = true;
+                  const w = await transcribeYoutubeViaAsrWorker(u.toString(), { language: "en" }).catch((err: any) => ({
+                    ok: false,
+                    reason: "EXCEPTION",
+                    message: String(err?.message || err || "YT_ASR_WORKER_FAILED"),
+                  }));
+                  if ((w as any).ok === true) {
+                    source = truncate((w as any).transcript);
+                    origin = "youtube";
+                    ytDiag.asrWorker.ok = true;
+                  } else {
+                    ytDiag.asrWorker.error = String((w as any)?.message || (w as any)?.reason || "YT_ASR_WORKER_FAILED");
+                  }
                 }
               }
 
@@ -1809,6 +1832,19 @@ export async function POST(req: Request) {
                 const errMsg = String(ytDiag.asr.error || "");
                 const looksLikeYouTubeBlocked = /status code:\s*\d+/i.test(errMsg) || /410|403|429/.test(errMsg);
                 if (looksLikeYouTubeBlocked) {
+                  // If the audio download was blocked AND an external ingest worker was attempted but failed,
+                  // return a more actionable error than generic "blocked".
+                  if (ytDiag.asrWorker?.attempted && ytDiag.asrWorker?.error) {
+                    return NextResponse.json(
+                      {
+                        error:
+                          "YouTube blocked server-side audio download from this deployment, and the external YouTube ASR worker also failed. Check the worker logs and configuration.",
+                        code: "YT_ASR_WORKER_FAILED",
+                        diag: ytDiag,
+                      },
+                      { status: 502 }
+                    );
+                  }
                   // If the audio download was blocked AND the RunPod YouTube worker was attempted but failed,
                   // return a more actionable error than "blocked".
                   if (ytDiag.runpodYoutube.attempted && ytDiag.runpodYoutube.error) {
@@ -1825,7 +1861,7 @@ export async function POST(req: Request) {
                   return NextResponse.json(
                     {
                       error:
-                        "YouTube blocked server-side audio download from this deployment. Use Subtitle upload (.srt/.vtt) or upload audio/video (mp3/m4a). To make paste-a-link work for blocked videos, configure RUNPOD_YOUTUBE_ENDPOINT_ID so RunPod can download/transcribe the YouTube URL.",
+                        "YouTube blocked server-side audio download from this deployment. Use Subtitle upload (.srt/.vtt) or upload audio/video (mp3/m4a). For a reliable paste-a-link fallback when captions aren\u2019t accessible from Vercel, configure YT_ASR_WORKER_URL (external worker) or RUNPOD_YOUTUBE_ENDPOINT_ID (RunPod worker).",
                       code: "YT_AUDIO_DOWNLOAD_FAILED",
                       diag: ytDiag,
                     },
