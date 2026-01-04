@@ -103,7 +103,7 @@ function extractTranscriptFromRunpodOutput(output: any): string | null {
 
 export async function transcribeYoutubeUrlWithRunpod(
   youtubeUrl: string,
-  options?: { timeoutMs?: number; pollMs?: number }
+  options?: { timeoutMs?: number; pollMs?: number; language?: string }
 ): Promise<RunpodYoutubeResult> {
   const urls = buildRunpodYoutubeUrls();
   const apiKey = (process.env.RUNPOD_YOUTUBE_API_KEY || process.env.RUNPOD_API_KEY || "").trim();
@@ -121,10 +121,13 @@ export async function transcribeYoutubeUrlWithRunpod(
 
   const authHeader = apiKey.toLowerCase().startsWith("bearer ") ? apiKey : `Bearer ${apiKey}`;
 
+  const language = (options?.language || "en").trim() || "en";
+
   // Expected worker contract (you implement on RunPod):
   // input: { youtubeUrl: "https://..." }
   // output: { transcript: string } (or { text/transcription/... })
-  const body = { input: { youtubeUrl } };
+  // Some workers use `lang`; others use `language`. Send both.
+  const body = { input: { youtubeUrl, language, lang: language } };
 
   try {
     const startedAt = Date.now();
