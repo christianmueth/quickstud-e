@@ -1320,6 +1320,7 @@ function fallbackCards(text: string) {
 // -------------------- route --------------------
 export async function POST(req: Request) {
   const t0 = Date.now();
+  const traceId = req.headers.get("x-quickstud-trace") || (globalThis.crypto as any)?.randomUUID?.() || `${Date.now()}-${Math.random()}`;
   try {
     const testKey = process.env.FLASHCARDS_TEST_KEY;
     const isTestMode = !!testKey && req.headers.get("x-flashcards-test-key") === testKey;
@@ -1841,6 +1842,7 @@ export async function POST(req: Request) {
                         error:
                           "YouTube blocked server-side audio download from this deployment, and the external YouTube ASR worker also failed. Check the worker logs and configuration.",
                         code: "YT_ASR_WORKER_FAILED",
+                        traceId,
                         diag: ytDiag,
                       },
                       { status: 502 }
@@ -1854,6 +1856,7 @@ export async function POST(req: Request) {
                         error:
                           "YouTube blocked server-side audio download from this deployment, and the RunPod YouTube worker also failed. Check the RunPod worker logs and configuration.",
                         code: "RUNPOD_YOUTUBE_FAILED",
+                        traceId,
                         diag: ytDiag,
                       },
                       { status: 502 }
@@ -1864,6 +1867,7 @@ export async function POST(req: Request) {
                       error:
                         "YouTube blocked server-side audio download from this deployment. Use Subtitle upload (.srt/.vtt) or upload audio/video (mp3/m4a). For a reliable paste-a-link fallback when captions aren\u2019t accessible from Vercel, configure YT_ASR_WORKER_URL (external worker) or RUNPOD_YOUTUBE_ENDPOINT_ID (RunPod worker).",
                       code: "YT_AUDIO_DOWNLOAD_FAILED",
+                      traceId,
                       diag: ytDiag,
                     },
                     { status: 400 }
@@ -2088,6 +2092,10 @@ export async function POST(req: Request) {
     redirectUrl.searchParams.set("origin", origin);
     return NextResponse.redirect(redirectUrl, { status: 303 });
   } catch (e: any) {
-    return NextResponse.json({ error: e?.message || "Failed to generate", code: "SERVER_FAIL" }, { status: 500 });
+    console.error("[Flashcards] Unhandled error", { traceId, message: e?.message, code: e?.code });
+    return NextResponse.json(
+      { error: e?.message || "Failed to generate", code: e?.code || "SERVER_FAIL", traceId },
+      { status: 500 }
+    );
   }
 }
