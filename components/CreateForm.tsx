@@ -186,50 +186,55 @@ export default function CreateForm() {
       const res = await fetch(apiEndpoint, { method: "POST", body: fd, signal: controller.signal });
       clearTimeout(t);
       if (!res.ok) {
+        const traceId = res.headers.get("x-quickstud-trace") || null;
         let msg = `Failed to generate (HTTP ${res.status})`;
         let j: any = null;
         try {
           j = await res.json();
-          if (j?.error) msg = `${j.error}${j?.code ? ` [${j.code}]` : ""}`;
+          const bodyTrace = j?.traceId ? String(j.traceId) : null;
+          const tid = traceId || bodyTrace;
+          if (j?.error) msg = `${j.error}${j?.code ? ` [${j.code}]` : ""}${tid ? ` (traceId: ${tid})` : ""}`;
         } catch {}
+
+        const tid = traceId || (j?.traceId ? String(j.traceId) : null);
 
         // RunPod serverless can queue jobs; when it doesn't start within our route timeout,
         // the API returns a retryable 503 instead of silently creating fallback content.
         if (res.status === 503 && j?.code === "RUNPOD_IN_QUEUE") {
-          toast.error("AI is queued on RunPod (no capacity yet). Please retry in ~30–60 seconds.");
+          toast.error(`AI is queued on RunPod (no capacity yet). Please retry in ~30–60 seconds.${tid ? ` (traceId: ${tid})` : ""}`);
           return;
         }
 
         if (j?.code === "YT_AUDIO_DOWNLOAD_FAILED") {
           toast.error(
-            "YouTube blocked server-side audio download. Use Subtitle upload (.srt/.vtt) or upload the video/audio file (mp3/m4a) in the Video tab. For reliable paste-a-link when captions aren’t accessible from Vercel, configure an external ingest worker (YT_ASR_WORKER_URL)."
+            `YouTube blocked server-side audio download. Use Subtitle upload (.srt/.vtt) or upload the video/audio file (mp3/m4a) in the Video tab. For reliable paste-a-link when captions aren’t accessible from Vercel, configure an external ingest worker (YT_ASR_WORKER_URL).${tid ? ` (traceId: ${tid})` : ""}`
           );
           return;
         }
 
         if (j?.code === "YT_ASR_WORKER_FAILED") {
           toast.error(
-            "External YouTube ASR worker failed. Check its logs/config (YT_ASR_WORKER_URL / YT_ASR_WORKER_KEY). As a workaround upload subtitle or audio."
+            `External YouTube ASR worker failed. Check its logs/config (YT_ASR_WORKER_URL / YT_ASR_WORKER_KEY). As a workaround upload subtitle or audio.${tid ? ` (traceId: ${tid})` : ""}`
           );
           return;
         }
 
         if (j?.code === "RUNPOD_YOUTUBE_NOT_CONFIGURED") {
           toast.error(
-            "Paste-a-link needs the RunPod YouTube worker configured. Set RUNPOD_YOUTUBE_ENDPOINT_ID and RUNPOD_YOUTUBE_API_KEY in Vercel env vars (or reuse RUNPOD_API_KEY)."
+            `Paste-a-link needs the RunPod YouTube worker configured. Set RUNPOD_YOUTUBE_ENDPOINT_ID and RUNPOD_YOUTUBE_API_KEY in Vercel env vars (or reuse RUNPOD_API_KEY).${tid ? ` (traceId: ${tid})` : ""}`
           );
           return;
         }
 
         if (j?.code === "RUNPOD_YOUTUBE_FAILED") {
           toast.error(
-            "RunPod YouTube worker failed. Check the worker logs on RunPod; as a workaround upload audio (mp3/m4a) instead."
+            `RunPod YouTube worker failed. Check the worker logs on RunPod; as a workaround upload audio (mp3/m4a) instead.${tid ? ` (traceId: ${tid})` : ""}`
           );
           return;
         }
 
         if (res.status === 504) {
-          toast.error("Timed out while generating. Please retry (RunPod can be slow/queued).");
+          toast.error(`Timed out while generating. Please retry (RunPod can be slow/queued).${tid ? ` (traceId: ${tid})` : ""}`);
           return;
         }
 
