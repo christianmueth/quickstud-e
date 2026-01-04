@@ -227,8 +227,21 @@ export default function CreateForm() {
         }
 
         if (j?.code === "RUNPOD_YOUTUBE_FAILED") {
+          const d = j?.diag?.runpodYoutube?.detail;
+          const reason = d?.reason ? String(d.reason) : null;
+          const httpStatus = typeof d?.httpStatus === "number" ? d.httpStatus : null;
+          const jobId = d?.id ? String(d.id) : null;
+          const detailMsg = d?.message ? String(d.message) : null;
+          const detailBits = [
+            reason ? `reason=${reason}` : null,
+            httpStatus ? `http=${httpStatus}` : null,
+            jobId ? `jobId=${jobId}` : null,
+          ].filter(Boolean);
+          const detailLine = detailBits.length ? ` (${detailBits.join(", ")})` : "";
+          const more = detailMsg ? ` — ${detailMsg}` : "";
+
           toast.error(
-            `RunPod YouTube worker failed. Check the worker logs on RunPod; as a workaround upload audio (mp3/m4a) instead.${tid ? ` (traceId: ${tid})` : ""}`
+            `RunPod YouTube worker failed${detailLine}${more}. Check the worker logs on RunPod; as a workaround upload audio (mp3/m4a) instead.${tid ? ` (traceId: ${tid})` : ""}`
           );
           return;
         }
