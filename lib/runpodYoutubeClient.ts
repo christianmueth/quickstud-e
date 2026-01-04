@@ -31,13 +31,47 @@ async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: numbe
   }
 }
 
-function buildRunpodRunsyncUrl(): string | null {
-  const explicit = (process.env.RUNPOD_YOUTUBE_ENDPOINT || "").trim();
-  if (explicit) return explicit;
+type RunpodYoutubeMode = "runsync" | "run";
 
-  const id = (process.env.RUNPOD_YOUTUBE_ENDPOINT_ID || "").trim();
-  if (!id) return null;
-  return `https://api.runpod.ai/v2/${id}/runsync`;
+function parseModeFromEndpoint(endpoint: string): RunpodYoutubeMode | null {
+  const p = endpoint.replace(/\/+$/, "");
+  if (p.endsWith("/runsync")) return "runsync";
+  if (p.endsWith("/run")) return "run";
+  return null;
+}
+
+function buildRunpodYoutubeUrls(): { mode: RunpodYoutubeMode; runUrl: string; statusBaseUrl: string } | null {
+  const explicit = (process.env.RUNPOD_YOUTUBE_ENDPOINT || "").trim();
+  const endpointId = (process.env.RUNPOD_YOUTUBE_ENDPOINT_ID || "").trim();
+
+  if (!explicit && !endpointId) return null;
+
+  const useRunEnv = process.env.RUNPOD_YOUTUBE_USE_RUN === "1";
+
+  if (explicit) {
+    const mode = parseModeFromEndpoint(explicit) ?? (useRunEnv ? "run" : "runsync");
+    const normalized = explicit.replace(/\/+$/, "");
+    if (mode === "run") {
+      // If someone provided the base /v2/<id> URL, append /run.
+      const runUrl = normalized.endsWith("/run") ? normalized : `${normalized}/run`;
+      const statusBaseUrl = runUrl.replace(/\/run$/, "");
+      return { mode, runUrl, statusBaseUrl };
+    }
+
+    // runsync
+    const runUrl = normalized.endsWith("/runsync") ? normalized : `${normalized}/runsync`;
+    const statusBaseUrl = runUrl.replace(/\/runsync$/, "");
+    return { mode, runUrl, statusBaseUrl };
+  }
+
+  const mode: RunpodYoutubeMode = useRunEnv ? "run" : "runsync";
+  const base = `https://api.runpod.ai/v2/${endpointId}`;
+  return { mode, runUrl: `${base}/${mode}`, statusBaseUrl: base };
+}
+
+function buildRunpodStatusUrl(statusBaseUrl: string, jobId: string): string {
+  const base = statusBaseUrl.replace(/\/+$/, "");
+  return `${base}/status/${encodeURIComponent(jobId)}`;
 }
 
 function extractTranscriptFromRunpodOutput(output: any): string | null {
@@ -67,10 +101,10 @@ export async function transcribeYoutubeUrlWithRunpod(
   youtubeUrl: string,
   options?: { timeoutMs?: number; pollMs?: number }
 ): Promise<RunpodYoutubeResult> {
-  const endpoint = buildRunpodRunsyncUrl();
+  const urls = buildRunpodYoutubeUrls();
   const apiKey = (process.env.RUNPOD_YOUTUBE_API_KEY || process.env.RUNPOD_API_KEY || "").trim();
 
-  if (!endpoint || !apiKey) {
+  if (!urls || !apiKey) {
     return {
       ok: false,
       reason: "NOT_CONFIGURED",
@@ -86,14 +120,117 @@ export async function transcribeYoutubeUrlWithRunpod(
   // Expected worker contract (you implement on RunPod):
   // input: { youtubeUrl: "https://..." }
   // output: { transcript: string } (or { text/transcription/... })
-  const body = {
-    input: {
-      youtubeUrl,
-    },
-  };
+  const body = { input: { youtubeUrl } };
 
   try {
     const startedAt = Date.now();
+
+    // Async (/run + /status/<id>) is more mechanically reliable under queueing than /runsync.
+    if (urls.mode === "run") {
+      const submitResp = await fetchWithTimeout(
+        urls.runUrl,
+        {
+          method: "POST",
+          headers: {
+            Authorization: authHeader,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(body),
+        },
+        Math.min(timeoutMs, 30_000)
+      );
+
+      const submitStatus = submitResp.status;
+      const submitRaw = await submitResp
+        .json()
+        .catch(async () => ({ _nonJson: await submitResp.text().catch(() => "") }))
+        .catch(() => null);
+
+      if (!submitResp.ok) {
+        return {
+          ok: false,
+          reason: "HTTP_ERROR",
+          message: `RunPod YouTube /run returned HTTP ${submitStatus}`,
+          httpStatus: submitStatus,
+          raw: submitRaw,
+        };
+      }
+
+      const jobId = String((submitRaw as any)?.id || (submitRaw as any)?.jobId || "").trim();
+      if (!jobId) {
+        return {
+          ok: false,
+          reason: "EMPTY_OUTPUT",
+          message: "RunPod YouTube /run did not return a job id",
+          raw: submitRaw,
+        };
+      }
+
+      while (true) {
+        const remaining = timeoutMs - (Date.now() - startedAt);
+        if (remaining <= 0) {
+          return { ok: false, reason: "TIMEOUT", message: `RunPod YouTube job timed out after ${timeoutMs}ms`, id: jobId };
+        }
+
+        const statusUrl = buildRunpodStatusUrl(urls.statusBaseUrl, jobId);
+        const statusResp = await fetchWithTimeout(
+          statusUrl,
+          {
+            method: "POST",
+            headers: {
+              Authorization: authHeader,
+              "Content-Type": "application/json",
+            },
+          },
+          Math.min(remaining, 30_000)
+        );
+
+        const httpStatus = statusResp.status;
+        const raw = await statusResp
+          .json()
+          .catch(async () => ({ _nonJson: await statusResp.text().catch(() => "") }))
+          .catch(() => null);
+
+        if (!statusResp.ok) {
+          return {
+            ok: false,
+            reason: "HTTP_ERROR",
+            message: `RunPod YouTube /status returned HTTP ${httpStatus}`,
+            httpStatus,
+            id: jobId,
+            raw,
+          };
+        }
+
+        const st = String((raw as any)?.status || (raw as any)?.state || "").toUpperCase();
+        if (st === "COMPLETED") {
+          const out = (raw as any)?.output ?? (raw as any)?.outputs ?? (raw as any);
+          const transcript = extractTranscriptFromRunpodOutput(out);
+          if (transcript) {
+            return { ok: true, transcript, id: jobId, raw: out };
+          }
+          return {
+            ok: false,
+            reason: "EMPTY_OUTPUT",
+            message: "RunPod YouTube job completed but returned no transcript",
+            id: jobId,
+            raw,
+          };
+        }
+
+        if (st === "FAILED" || st === "CANCELLED") {
+          return {
+            ok: false,
+            reason: "HTTP_ERROR",
+            message: `RunPod YouTube job ${st}`,
+            id: jobId,
+            raw,
+          };
+        }
+
+        await sleep(pollMs);
+      }
+    }
 
     while (true) {
       const remaining = timeoutMs - (Date.now() - startedAt);
@@ -102,7 +239,7 @@ export async function transcribeYoutubeUrlWithRunpod(
       }
 
       const resp = await fetchWithTimeout(
-        endpoint,
+        urls.runUrl,
         {
           method: "POST",
           headers: {
