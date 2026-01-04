@@ -189,7 +189,12 @@ async function fetchYouTubeTranscriptViaTimedText(id: string): Promise<string | 
   // Works when captions (including auto captions) are available via timedtext.
   const ua =
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36";
-  const headers = { "User-Agent": ua, "Accept-Language": "en-US,en;q=0.9" };
+  const headers = {
+    "User-Agent": ua,
+    "Accept-Language": "en-US,en;q=0.9",
+    Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    Referer: "https://www.youtube.com/",
+  };
 
   // First try to discover which caption tracks exist (language + manual vs ASR).
   // This dramatically improves success vs hardcoding lang=en.
@@ -235,18 +240,33 @@ async function fetchYouTubeTranscriptViaTimedText(id: string): Promise<string | 
     return `${base}${name}${kind}${format}`;
   }
 
+  function parseJson3ToText(json: any): string {
+    const events = Array.isArray(json?.events) ? json.events : [];
+    const parts: string[] = [];
+    for (const ev of events) {
+      const segs = Array.isArray(ev?.segs) ? ev.segs : [];
+      for (const seg of segs) {
+        const t = typeof seg?.utf8 === "string" ? seg.utf8 : "";
+        if (t) parts.push(t);
+      }
+    }
+    return cleanText(parts.join(" "));
+  }
+
   const tracks = await fetchTrackList();
   const preferred: Track[] = [];
 
   if (tracks.length) {
-    const by = (lang: string, isAsr: boolean) => tracks.filter((t) => t.lang === lang && t.isAsr === isAsr);
-    // Prefer English manual captions, then English ASR.
-    preferred.push(...by("en", false), ...by("en", true));
+    const byExact = (lang: string, isAsr: boolean) => tracks.filter((t) => t.lang === lang && t.isAsr === isAsr);
+    const byPrefix = (prefix: string, isAsr: boolean) => tracks.filter((t) => t.lang.startsWith(prefix) && t.isAsr === isAsr);
+    // Prefer English manual captions, then English ASR. Include en-* locales.
+    preferred.push(...byExact("en", false), ...byPrefix("en-", false));
+    preferred.push(...byExact("en", true), ...byPrefix("en-", true));
     // Then any manual captions, then any ASR captions.
-    preferred.push(...tracks.filter((t) => t.lang !== "en" && !t.isAsr));
-    preferred.push(...tracks.filter((t) => t.lang !== "en" && t.isAsr));
+    preferred.push(...tracks.filter((t) => !t.lang.startsWith("en") && !t.isAsr));
+    preferred.push(...tracks.filter((t) => !t.lang.startsWith("en") && t.isAsr));
 
-    // Fetch each track (try VTT first, then XML)
+    // Fetch each track (try VTT first, then XML, then json3)
     for (const track of preferred) {
       for (const fmt of ["vtt", "xml"] as const) {
         const url = buildTimedtextUrl(track, fmt);
@@ -279,6 +299,18 @@ async function fetchYouTubeTranscriptViaTimedText(id: string): Promise<string | 
         } catch {
           // ignore and try next
         }
+      }
+
+      // json3 captions (common alternative when XML/VTT isn't returned)
+      try {
+        const url = `${buildTimedtextUrl(track, "xml")}&fmt=json3`;
+        const r = await fetch(url, { headers });
+        if (!r.ok) continue;
+        const json = await r.json().catch(() => null);
+        const cleaned = parseJson3ToText(json);
+        if (cleaned) return cleaned;
+      } catch {
+        // ignore
       }
     }
   }
