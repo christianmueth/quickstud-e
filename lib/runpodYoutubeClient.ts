@@ -155,9 +155,9 @@ export async function transcribeYoutubeUrlWithRunpod(
       return {
         ok: false,
         reason: "HTTP_ERROR",
-        message: `RunPod YouTube /run returned HTTP ${submitStatus}`,
+        message: `RunPod YouTube /run returned HTTP ${submitStatus} (${runUrl})`,
         httpStatus: submitStatus,
-        raw: submitRaw,
+        raw: { requestUrl: runUrl, mode: "run", phase: "submit", response: submitRaw },
       };
     }
 
@@ -200,10 +200,10 @@ export async function transcribeYoutubeUrlWithRunpod(
         return {
           ok: false,
           reason: "HTTP_ERROR",
-          message: `RunPod YouTube /status returned HTTP ${httpStatus}`,
+          message: `RunPod YouTube /status returned HTTP ${httpStatus} (${statusUrl})`,
           httpStatus,
           id: jobId,
-          raw,
+          raw: { requestUrl: statusUrl, mode: "run", phase: "status", response: raw },
         };
       }
 
@@ -229,7 +229,7 @@ export async function transcribeYoutubeUrlWithRunpod(
           reason: "HTTP_ERROR",
           message: `RunPod YouTube job ${st}`,
           id: jobId,
-          raw,
+          raw: { requestUrl: statusUrl, mode: "run", phase: "status", response: raw },
         };
       }
 
@@ -268,9 +268,9 @@ export async function transcribeYoutubeUrlWithRunpod(
         return {
           ok: false,
           reason: "HTTP_ERROR",
-          message: `RunPod YouTube endpoint returned HTTP ${status}`,
+          message: `RunPod YouTube /runsync returned HTTP ${status} (${runsyncUrl})`,
           httpStatus: status,
-          raw,
+          raw: { requestUrl: runsyncUrl, mode: "runsync", response: raw },
         };
       }
 
