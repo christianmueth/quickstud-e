@@ -1679,7 +1679,7 @@ export async function POST(req: Request) {
             videoId: getYouTubeId(u),
             captions: { attempted: false, ok: false, error: null as string | null },
             asrWorker: { attempted: false, ok: false, error: null as string | null, configured: false },
-            runpodYoutube: { attempted: false, ok: false, error: null as string | null, notConfigured: false },
+            runpodYoutube: { attempted: false, ok: false, error: null as string | null, notConfigured: false, detail: null as any },
             asr: {
               attempted: false,
               ok: false,
@@ -1774,6 +1774,7 @@ export async function POST(req: Request) {
                     origin = "youtube";
                     ytDiag.runpodYoutube.ok = true;
                   } else {
+                    ytDiag.runpodYoutube.detail = ytJob;
                     ytDiag.runpodYoutube.error = String(
                       (ytJob as any)?.message || (ytJob as any)?.reason || "RUNPOD_YOUTUBE_FAILED"
                     );
