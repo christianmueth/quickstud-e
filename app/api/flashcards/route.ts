@@ -1680,7 +1680,7 @@ export async function POST(req: Request) {
             videoId: getYouTubeId(u),
             captions: { attempted: false, ok: false, error: null as string | null },
             asrWorker: { attempted: false, ok: false, error: null as string | null, configured: false },
-            runpodYoutube: { attempted: false, ok: false, error: null as string | null, notConfigured: false, detail: null as any },
+            runpodYoutube: { attempted: false, ok: false, error: null as string | null, notConfigured: false, misconfigured: false, detail: null as any },
             asr: {
               attempted: false,
               ok: false,
@@ -1762,7 +1762,19 @@ export async function POST(req: Request) {
                   (process.env.RUNPOD_YOUTUBE_API_KEY || "").trim() || (process.env.RUNPOD_API_KEY || "").trim()
                 );
 
-                if (hasRunpodYoutubeEndpoint && hasRunpodYoutubeKey) {
+                // Common misconfig: pointing the YouTube worker env var at a Whisper/ASR endpoint.
+                // A Whisper endpoint expects an *audio URL*; it cannot transcribe a YouTube watch URL unless it was built to download YouTube itself.
+                const ytEndpointId = (process.env.RUNPOD_YOUTUBE_ENDPOINT_ID || "").trim();
+                const asrEndpointId = (process.env.RUNPOD_ASR_ENDPOINT_ID || "").trim();
+                const ytEndpoint = (process.env.RUNPOD_YOUTUBE_ENDPOINT || "").trim();
+                const asrEndpoint = (process.env.RUNPOD_ASR_ENDPOINT || "").trim();
+                const looksLikeSameId = !!ytEndpointId && !!asrEndpointId && ytEndpointId === asrEndpointId;
+                const looksLikeSameExplicit = !!ytEndpoint && !!asrEndpoint && ytEndpoint.replace(/\/+$/, "") === asrEndpoint.replace(/\/+$/, "");
+                if (looksLikeSameId || looksLikeSameExplicit) {
+                  ytDiag.runpodYoutube.misconfigured = true;
+                }
+
+                if (hasRunpodYoutubeEndpoint && hasRunpodYoutubeKey && !ytDiag.runpodYoutube.misconfigured) {
                   ytDiag.runpodYoutube.attempted = true;
                   const ytJob = await transcribeYoutubeUrlWithRunpod(u.toString()).catch((err: any) => ({
                     ok: false,
@@ -1860,6 +1872,19 @@ export async function POST(req: Request) {
                         diag: ytDiag,
                       },
                       { status: 502 }
+                    );
+                  }
+
+                  if (ytDiag.runpodYoutube.misconfigured) {
+                    return NextResponse.json(
+                      {
+                        error:
+                          "RUNPOD_YOUTUBE_ENDPOINT(_ID) appears to be pointing at your Whisper/ASR endpoint. A Whisper endpoint expects an audio URL, not a YouTube watch URL. Set RUNPOD_ASR_ENDPOINT(_ID) to your Whisper endpoint, and configure a separate YouTube ingest worker via RUNPOD_YOUTUBE_ENDPOINT_ID (or YT_ASR_WORKER_URL).",
+                        code: "RUNPOD_YOUTUBE_MISCONFIGURED",
+                        traceId,
+                        diag: ytDiag,
+                      },
+                      { status: 500 }
                     );
                   }
                   return NextResponse.json(

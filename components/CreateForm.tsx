@@ -246,6 +246,13 @@ export default function CreateForm() {
           return;
         }
 
+        if (j?.code === "RUNPOD_YOUTUBE_MISCONFIGURED") {
+          toast.error(
+            `RunPod YouTube is misconfigured: it looks like RUNPOD_YOUTUBE_ENDPOINT(_ID) points to your Whisper/ASR endpoint. Set RUNPOD_ASR_ENDPOINT_ID to your Whisper endpoint, and configure a separate YouTube ingest worker (RUNPOD_YOUTUBE_ENDPOINT_ID) for paste-a-link.${tid ? ` (traceId: ${tid})` : ""}`
+          );
+          return;
+        }
+
         if (res.status === 504) {
           toast.error(`Timed out while generating. Please retry (RunPod can be slow/queued).${tid ? ` (traceId: ${tid})` : ""}`);
           return;

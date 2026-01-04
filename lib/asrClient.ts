@@ -13,13 +13,43 @@ export type ASRResult =
 
 let loggedRunpodASRKeys = false;
 
-function buildRunsyncUrl(): string | null {
-  const explicit = process.env.RUNPOD_ASR_ENDPOINT?.trim();
-  if (explicit) return explicit;
+type RunpodAsrMode = "runsync" | "run";
 
-  const id = process.env.RUNPOD_ASR_ENDPOINT_ID?.trim();
-  if (!id) return null;
-  return `https://api.runpod.ai/v2/${id}/runsync`;
+function parseModeFromEndpoint(endpoint: string): RunpodAsrMode | null {
+  const p = endpoint.replace(/\/+$/, "");
+  if (p.endsWith("/runsync")) return "runsync";
+  if (p.endsWith("/run")) return "run";
+  return null;
+}
+
+function buildRunpodAsrUrls(): { mode: RunpodAsrMode; runUrl: string; statusBaseUrl: string } | null {
+  const explicit = (process.env.RUNPOD_ASR_ENDPOINT || "").trim();
+  const endpointId = (process.env.RUNPOD_ASR_ENDPOINT_ID || "").trim();
+  if (!explicit && !endpointId) return null;
+
+  const useRunEnv = process.env.RUNPOD_ASR_USE_RUN === "1";
+
+  if (explicit) {
+    const normalized = explicit.replace(/\/+$/, "");
+    const mode = parseModeFromEndpoint(normalized) ?? (useRunEnv ? "run" : "runsync");
+    if (mode === "run") {
+      const runUrl = normalized.endsWith("/run") ? normalized : `${normalized}/run`;
+      const statusBaseUrl = runUrl.replace(/\/+run$/, "");
+      return { mode, runUrl, statusBaseUrl };
+    }
+    const runUrl = normalized.endsWith("/runsync") ? normalized : `${normalized}/runsync`;
+    const statusBaseUrl = runUrl.replace(/\/+runsync$/, "");
+    return { mode, runUrl, statusBaseUrl };
+  }
+
+  const mode: RunpodAsrMode = useRunEnv ? "run" : "runsync";
+  const base = `https://api.runpod.ai/v2/${endpointId}`;
+  return { mode, runUrl: `${base}/${mode}`, statusBaseUrl: base };
+}
+
+function buildRunpodStatusUrl(statusBaseUrl: string, jobId: string): string {
+  const base = statusBaseUrl.replace(/\/+$/, "");
+  return `${base}/status/${encodeURIComponent(jobId)}`;
 }
 
 function getAuthHeader(): string | null {
@@ -84,9 +114,9 @@ export async function transcribeAudioUrlWithRunpod(
   audioUrl: string,
   opts?: { timeoutMs?: number } & Record<string, unknown>
 ): Promise<ASRResult> {
-  const url = buildRunsyncUrl();
+  const urls = buildRunpodAsrUrls();
   const auth = getAuthHeader();
-  if (!url || !auth) {
+  if (!urls || !auth) {
     return {
       ok: false,
       code: "NOT_CONFIGURED",
@@ -110,69 +140,205 @@ export async function transcribeAudioUrlWithRunpod(
       },
     };
 
-    const rpRes = await fetchWithTimeout(
-      url,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: auth,
+    async function parseJsonOrText(res: Response): Promise<any> {
+      try {
+        return await res.json();
+      } catch {
+        return await res.text().catch(() => null);
+      }
+    }
+
+    async function runsyncCall(runsyncUrl: string): Promise<ASRResult> {
+      const rpRes = await fetchWithTimeout(
+        runsyncUrl,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: auth,
+          },
+          body: JSON.stringify(payload),
         },
-        body: JSON.stringify(payload),
-      },
-      timeoutMs
-    );
+        timeoutMs
+      );
 
-    let data: any = null;
-    try {
-      data = await rpRes.json();
-    } catch {
-      data = await rpRes.text().catch(() => null);
+      const data = await parseJsonOrText(rpRes);
+      if (!loggedRunpodASRKeys && data && typeof data === "object") {
+        loggedRunpodASRKeys = true;
+        const topKeys = Object.keys(data || {});
+        const outputKeys = data?.output && typeof data.output === "object" ? Object.keys(data.output) : [];
+        console.log("[ASR] RunPod response keys:", topKeys);
+        console.log("[ASR] RunPod output keys:", outputKeys);
+      }
+
+      const id = (typeof (data as any)?.id === "string" && (data as any).id) || (typeof (data as any)?.output?.id === "string" && (data as any).output.id) || undefined;
+
+      if (!rpRes.ok) {
+        return {
+          ok: false,
+          code: "HTTP_ERROR",
+          message: `RunPod ASR request failed (HTTP ${rpRes.status})${id ? ` id=${id}` : ""}`,
+          status: rpRes.status,
+          id,
+          raw: redactSecrets(data),
+        };
+      }
+
+      if ((data as any)?.Error) {
+        return {
+          ok: false,
+          code: "RUNPOD_ERROR",
+          message: String((data as any).Error) + (id ? ` id=${id}` : ""),
+          id,
+          raw: redactSecrets(data),
+        };
+      }
+
+      const { transcript, segments, detectedLanguage } = extractASROutput(data);
+      if (!transcript) {
+        return {
+          ok: false,
+          code: "BAD_OUTPUT",
+          message: "RunPod ASR returned no transcript in expected fields (output.transcription, output.text, transcription).",
+          id,
+          raw: redactSecrets(data),
+        };
+      }
+
+      return { ok: true, transcript, segments, detectedLanguage, raw: data };
     }
 
-    if (!loggedRunpodASRKeys && data && typeof data === "object") {
-      loggedRunpodASRKeys = true;
-      const topKeys = Object.keys(data || {});
-      const outputKeys = data?.output && typeof data.output === "object" ? Object.keys(data.output) : [];
-      console.log("[ASR] RunPod response keys:", topKeys);
-      console.log("[ASR] RunPod output keys:", outputKeys);
+    async function runAndPoll(runUrl: string, statusBaseUrl: string): Promise<ASRResult> {
+      const startedAt = Date.now();
+      const pollMs = Math.max(250, Number(process.env.RUNPOD_ASR_POLL_MS || 1500));
+
+      const submitResp = await fetchWithTimeout(
+        runUrl,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: auth,
+          },
+          body: JSON.stringify(payload),
+        },
+        Math.min(timeoutMs, 30_000)
+      );
+
+      const submitData = await parseJsonOrText(submitResp);
+      if (!submitResp.ok) {
+        return {
+          ok: false,
+          code: "HTTP_ERROR",
+          message: `RunPod ASR /run failed (HTTP ${submitResp.status})`,
+          status: submitResp.status,
+          raw: redactSecrets(submitData),
+        };
+      }
+
+      const jobId = String((submitData as any)?.id || (submitData as any)?.jobId || "").trim();
+      if (!jobId) {
+        return {
+          ok: false,
+          code: "BAD_OUTPUT",
+          message: "RunPod ASR /run did not return a job id",
+          raw: redactSecrets(submitData),
+        };
+      }
+
+      while (true) {
+        const remaining = timeoutMs - (Date.now() - startedAt);
+        if (remaining <= 0) {
+          return {
+            ok: false,
+            code: "TIMEOUT",
+            message: "RunPod ASR job timed out",
+            id: jobId,
+          };
+        }
+
+        const statusUrl = buildRunpodStatusUrl(statusBaseUrl, jobId);
+        const statusResp = await fetchWithTimeout(
+          statusUrl,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: auth,
+            },
+          },
+          Math.min(remaining, 30_000)
+        );
+
+        const statusData = await parseJsonOrText(statusResp);
+        if (!statusResp.ok) {
+          return {
+            ok: false,
+            code: "HTTP_ERROR",
+            message: `RunPod ASR /status failed (HTTP ${statusResp.status})`,
+            status: statusResp.status,
+            id: jobId,
+            raw: redactSecrets(statusData),
+          };
+        }
+
+        const st = String((statusData as any)?.status || (statusData as any)?.state || "").toUpperCase();
+        if (st === "COMPLETED") {
+          if ((statusData as any)?.Error) {
+            return {
+              ok: false,
+              code: "RUNPOD_ERROR",
+              message: String((statusData as any).Error),
+              id: jobId,
+              raw: redactSecrets(statusData),
+            };
+          }
+
+          const outRoot = (statusData as any)?.output ?? (statusData as any)?.outputs ?? statusData;
+          const { transcript, segments, detectedLanguage } = extractASROutput({ output: outRoot, ...statusData });
+          if (!transcript) {
+            return {
+              ok: false,
+              code: "BAD_OUTPUT",
+              message: "RunPod ASR job completed but returned no transcript",
+              id: jobId,
+              raw: redactSecrets(statusData),
+            };
+          }
+
+          return { ok: true, transcript, segments, detectedLanguage, raw: statusData };
+        }
+
+        if (st === "FAILED" || st === "CANCELLED") {
+          return {
+            ok: false,
+            code: "RUNPOD_ERROR",
+            message: `RunPod ASR job ${st}`,
+            id: jobId,
+            raw: redactSecrets(statusData),
+          };
+        }
+
+        await new Promise((r) => setTimeout(r, pollMs));
+      }
     }
 
-    const id = (typeof data?.id === "string" && data.id) || (typeof data?.output?.id === "string" && data.output.id) || undefined;
-
-    if (!rpRes.ok) {
-      return {
-        ok: false,
-        code: "HTTP_ERROR",
-        message: `RunPod ASR request failed (HTTP ${rpRes.status})${id ? ` id=${id}` : ""}`,
-        status: rpRes.status,
-        id,
-        raw: redactSecrets(data),
-      };
+    // Prefer configured mode, but fall back if the endpoint doesn't support it.
+    if (urls.mode === "run") {
+      const primary = await runAndPoll(urls.runUrl, urls.statusBaseUrl);
+      if (!primary.ok && primary.code === "HTTP_ERROR" && primary.status === 404) {
+        const altRunsyncUrl = `${urls.statusBaseUrl.replace(/\/+$/, "")}/runsync`;
+        return await runsyncCall(altRunsyncUrl);
+      }
+      return primary;
     }
 
-    if (data?.Error) {
-      return {
-        ok: false,
-        code: "RUNPOD_ERROR",
-        message: String(data.Error) + (id ? ` id=${id}` : ""),
-        id,
-        raw: redactSecrets(data),
-      };
+    const primary = await runsyncCall(urls.runUrl);
+    if (!primary.ok && primary.code === "HTTP_ERROR" && primary.status === 404) {
+      const altRunUrl = `${urls.statusBaseUrl.replace(/\/+$/, "")}/run`;
+      return await runAndPoll(altRunUrl, urls.statusBaseUrl);
     }
-
-    const { transcript, segments, detectedLanguage } = extractASROutput(data);
-    if (!transcript) {
-      return {
-        ok: false,
-        code: "BAD_OUTPUT",
-        message: "RunPod ASR returned no transcript in expected fields (output.transcription, output.text, transcription).",
-        id,
-        raw: redactSecrets(data),
-      };
-    }
-
-    return { ok: true, transcript, segments, detectedLanguage, raw: data };
+    return primary;
   } catch (e: any) {
     return {
       ok: false,
