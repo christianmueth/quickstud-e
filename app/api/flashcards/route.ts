@@ -192,8 +192,9 @@ async function fetchYouTubeTranscriptViaTimedText(id: string): Promise<string | 
   const headers = {
     "User-Agent": ua,
     "Accept-Language": "en-US,en;q=0.9",
-    Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    Referer: "https://www.youtube.com/",
+    // Prefer caption formats, not HTML.
+    Accept: "text/vtt,application/xml,text/xml,application/json,*/*;q=0.8",
+    Referer: `https://www.youtube.com/watch?v=${encodeURIComponent(id)}`,
   };
 
   // First try to discover which caption tracks exist (language + manual vs ASR).
