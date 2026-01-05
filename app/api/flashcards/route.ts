@@ -904,12 +904,17 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
       if (extracted) jsonText = extracted;
     }
 
-    const arr = JSON.parse(jsonText) as Array<{
+    let arr: Array<{
       q?: string;
       a?: string;
       question?: string;
       answer?: string;
     }>;
+    try {
+      arr = JSON.parse(jsonText) as any;
+    } catch {
+      return null;
+    }
 
     const mapped = arr
       .map((c) => ({
@@ -1194,15 +1199,34 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
 
       const cleaned = stripFence(result.content || "");
       const parsed = await parseCardsFromJsonLike(cleaned);
+
+      // If the model ignored JSON guidance (common: starts with "Alright, I..."),
+      // fall back to the more robust Q/A format for just this batch.
       if (!parsed || parsed.length === 0) {
-        const err: any = new Error("RunPod returned output that could not be parsed into flashcards.");
-        err.code = "RUNPOD_BAD_OUTPUT";
-        err.preview = String(cleaned || "").slice(0, 500);
-        err.jobId = result.jobId || null;
-        throw err;
+        console.warn("[Cards] Guided JSON parse failed; falling back to Q/A parsing for this batch");
+        const qa = await runQaPass(m, cards);
+        if (qa.ok && qa.content) {
+          const parsedQa = parseCardsFromQA(qa.content) || [];
+          if (parsedQa.length) {
+            for (const c of parsedQa) cards.push(c);
+          } else {
+            const err: any = new Error("RunPod returned output that could not be parsed into flashcards.");
+            err.code = "RUNPOD_BAD_OUTPUT";
+            err.preview = String(qa.content || "").slice(0, 500);
+            err.jobId = qa.jobId || null;
+            throw err;
+          }
+        } else {
+          const err: any = new Error("RunPod returned output that could not be parsed into flashcards.");
+          err.code = "RUNPOD_BAD_OUTPUT";
+          err.preview = String(cleaned || "").slice(0, 500);
+          err.jobId = result.jobId || null;
+          throw err;
+        }
+      } else {
+        for (const c of parsed) cards.push(c);
       }
 
-      for (const c of parsed) cards.push(c);
       const unique = new Map<string, { question: string; answer: string }>();
       for (const c of cards) unique.set(c.question.toLowerCase(), c);
       cards.splice(0, cards.length, ...Array.from(unique.values()));
