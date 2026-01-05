@@ -859,9 +859,13 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
     { role: "user" as const, content: buildFlashcardPrompt(llmSource, count) },
   ];
 
-  const useGuidedJson = process.env.FLASHCARDS_USE_GUIDED_JSON === "1" && process.env.RUNPOD_GUIDED_JSON === "1";
+  // Guided JSON is the most reliable way to force structured output from RunPod/vLLM.
+  // Default ON when the endpoint advertises support (RUNPOD_GUIDED_JSON=1).
+  // Allow explicit opt-out via FLASHCARDS_USE_GUIDED_JSON=0.
+  const guidedJsonSupported = process.env.RUNPOD_GUIDED_JSON === "1";
+  const useGuidedJson = guidedJsonSupported && process.env.FLASHCARDS_USE_GUIDED_JSON !== "0";
   console.log(
-    `[Cards] Guided JSON mode=${useGuidedJson ? "on" : "off"} (FLASHCARDS_USE_GUIDED_JSON=${process.env.FLASHCARDS_USE_GUIDED_JSON || "0"}, RUNPOD_GUIDED_JSON=${process.env.RUNPOD_GUIDED_JSON || "0"})`
+    `[Cards] Guided JSON mode=${useGuidedJson ? "on" : "off"} (FLASHCARDS_USE_GUIDED_JSON=${process.env.FLASHCARDS_USE_GUIDED_JSON ?? "(default)"}, RUNPOD_GUIDED_JSON=${process.env.RUNPOD_GUIDED_JSON || "0"})`
   );
   const makeGuidedJson = (n: number) =>
     useGuidedJson
