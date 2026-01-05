@@ -859,8 +859,10 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
     { role: "user" as const, content: buildFlashcardPrompt(llmSource, count) },
   ];
 
-  const useGuidedJson = process.env.RUNPOD_GUIDED_JSON === "1";
-  console.log(`[Cards] RUNPOD_GUIDED_JSON=${useGuidedJson ? "1" : "0"}`);
+  const useGuidedJson = process.env.FLASHCARDS_USE_GUIDED_JSON === "1" && process.env.RUNPOD_GUIDED_JSON === "1";
+  console.log(
+    `[Cards] Guided JSON mode=${useGuidedJson ? "on" : "off"} (FLASHCARDS_USE_GUIDED_JSON=${process.env.FLASHCARDS_USE_GUIDED_JSON || "0"}, RUNPOD_GUIDED_JSON=${process.env.RUNPOD_GUIDED_JSON || "0"})`
+  );
   const makeGuidedJson = (n: number) =>
     useGuidedJson
       ? {
