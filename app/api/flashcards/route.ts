@@ -932,9 +932,19 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
     const normalized = String(text || "").replace(/\r\n/g, "\n");
     const out: Array<{ question: string; answer: string }> = [];
 
+    const normalizeLine = (line: string) => {
+      let s = String(line || "").trim();
+      // Strip common markdown/bullet prefixes.
+      s = s.replace(/^[-*>\u2022]+\s+/, "");
+      // Allow bold/underlined labels like **Q:** or __A:__
+      s = s.replace(/^\*\*(Q|Question|A|Answer)\*\*\s*([:\-])/i, "$1$2");
+      s = s.replace(/^__(Q|Question|A|Answer)__\s*([:\-])/i, "$1$2");
+      return s.trim();
+    };
+
     const lines = normalized
       .split("\n")
-      .map((l) => l.trim())
+      .map(normalizeLine)
       .filter((l) => l.length > 0 && l !== "</final>");
 
     const isSep = (l: string) => l === "---" || l === "***";
@@ -1008,7 +1018,7 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
         content:
           "You are a flashcard generator. Output ONLY flashcards in the requested Q/A format. No analysis, no reasoning, no extra text. If you output anything other than Q/A blocks, it will be rejected.",
       },
-      { role: "user" as const, content: `${buildFlashcardPromptQA(source, remaining)}${prefix}` },
+      { role: "user" as const, content: `${buildFlashcardPromptQA(llmSource, remaining)}${prefix}` },
       // Assistant prefill to bias the model to start with the required token.
       { role: "assistant" as const, content: "Q:" },
     ];
@@ -1247,7 +1257,7 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
         content:
           "You are a flashcard generator. Output ONLY flashcards in the requested Q/A format. No analysis, no reasoning, no extra text.",
       },
-      { role: "user" as const, content: buildFlashcardPromptQA(source, count) },
+      { role: "user" as const, content: buildFlashcardPromptQA(llmSource, count) },
     ];
 
     const qaResult = await callLLMResult(qaMessages, OPENAI_MAX_OUTPUT_TOKENS, 0, {
