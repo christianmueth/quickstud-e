@@ -319,17 +319,26 @@ export async function callLLMResult(
             fetchWithTimeout(
               chatUrl,
               {
-              method: "POST",
-              headers: {
-                Authorization: bearerAuthHeaderValue,
-                "Content-Type": "application/json",
-              },
-              body,
+                method: "POST",
+                headers: {
+                  Authorization: bearerAuthHeaderValue,
+                  "Content-Type": "application/json",
+                },
+                body,
               },
               openAICompatTimeoutMs
             );
 
-          let resp = await doPost(makeBody({}));
+          let resp: Response;
+          try {
+            resp = await doPost(makeBody({}));
+          } catch (e: any) {
+            const msg = String(e?.message || e || "openai-compat request failed");
+            // Important: AbortError/timeouts should fall back to the regular /run flow so we can
+            // get a job id + status polling (and surface IN_QUEUE vs truly dead endpoints).
+            console.warn(`[aiClient] OpenAI-compatible request threw (${e?.name || "Error"}): ${msg}. Falling back to /run.`);
+            break;
+          }
 
           if (resp.ok) {
             const data = await resp.json();
@@ -357,7 +366,13 @@ export async function callLLMResult(
               const id = await discoverOpenAICompatModelId(modelsUrl, bearerAuthHeaderValue);
               if (id && id !== compatModel) {
                 console.warn(`[aiClient] Retrying openai-compat with discovered model id after ${status}`);
-                resp = await doPost(makeBody({ model: id }));
+                try {
+                  resp = await doPost(makeBody({ model: id }));
+                } catch (e: any) {
+                  const msg = String(e?.message || e || "openai-compat retry failed");
+                  console.warn(`[aiClient] OpenAI-compatible retry threw (${e?.name || "Error"}): ${msg}. Falling back to /run.`);
+                  break;
+                }
                 if (resp.ok) {
                   const data = await resp.json();
                   const content = extractTextFromRunpodOutput(data);
@@ -369,7 +384,13 @@ export async function callLLMResult(
             }
 
             console.warn(`[aiClient] Retrying openai-compat without response_format after ${status}`);
-            resp = await doPost(makeBody({ omitResponseFormat: true }));
+            try {
+              resp = await doPost(makeBody({ omitResponseFormat: true }));
+            } catch (e: any) {
+              const msg = String(e?.message || e || "openai-compat retry failed");
+              console.warn(`[aiClient] OpenAI-compatible retry threw (${e?.name || "Error"}): ${msg}. Falling back to /run.`);
+              break;
+            }
             if (resp.ok) {
               const data = await resp.json();
               const content = extractTextFromRunpodOutput(data);

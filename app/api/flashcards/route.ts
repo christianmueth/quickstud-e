@@ -881,7 +881,12 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
 
   const modelName = process.env.RUNPOD_MODEL || "deepseek-r1";
   const enableQaMode = process.env.FLASHCARDS_QA_MODE === "1";
-  const preferQaForModel = enableQaMode && (/deepseek.*r1/i.test(modelName) || /\br1\b/i.test(modelName));
+  // Q/A primary mode can require multiple LLM calls. When guided JSON is enabled we already have a
+  // deterministic JSON path, so skip Q/A mode entirely to reduce latency.
+  const preferQaForModel =
+    enableQaMode &&
+    !useGuidedJson &&
+    (/deepseek.*r1/i.test(modelName) || /\br1\b/i.test(modelName));
   const n = Math.min(Math.max(count, 5), 50);
 
   function ensureQuestionMark(q: string) {
