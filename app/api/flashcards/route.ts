@@ -1200,28 +1200,19 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
       const cleaned = stripFence(result.content || "");
       const parsed = await parseCardsFromJsonLike(cleaned);
 
-      // If the model ignored JSON guidance (common: starts with "Alright, I..."),
-      // fall back to the more robust Q/A format for just this batch.
       if (!parsed || parsed.length === 0) {
-        console.warn("[Cards] Guided JSON parse failed; falling back to Q/A parsing for this batch");
-        const qa = await runQaPass(m, cards);
-        if (qa.ok && qa.content) {
-          const parsedQa = parseCardsFromQA(qa.content) || [];
-          if (parsedQa.length) {
-            for (const c of parsedQa) cards.push(c);
-          } else {
-            const err: any = new Error("RunPod returned output that could not be parsed into flashcards.");
-            err.code = "RUNPOD_BAD_OUTPUT";
-            err.preview = String(qa.content || "").slice(0, 500);
-            err.jobId = qa.jobId || null;
-            throw err;
-          }
+        // If the model ignored JSON guidance, it may have output Q/A blocks or prose.
+        // Try parsing the *same* output as Q/A (no extra LLM call), otherwise fall back.
+        const parsedQa = parseCardsFromQA(cleaned) || [];
+        if (parsedQa.length) {
+          console.warn("[Cards] Guided JSON parse failed; recovered cards via Q/A parsing");
+          for (const c of parsedQa) cards.push(c);
         } else {
-          const err: any = new Error("RunPod returned output that could not be parsed into flashcards.");
-          err.code = "RUNPOD_BAD_OUTPUT";
-          err.preview = String(cleaned || "").slice(0, 500);
-          err.jobId = result.jobId || null;
-          throw err;
+          console.warn("[Cards] Guided JSON parse failed; returning fallback cards", {
+            preview: String(cleaned || "").slice(0, 200),
+            jobId: result.jobId || null,
+          });
+          return null;
         }
       } else {
         for (const c of parsed) cards.push(c);
@@ -1337,11 +1328,12 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
   }
 
   const err: any = new Error("RunPod returned non-JSON output; cannot parse flashcards.");
-  err.code = "RUNPOD_BAD_OUTPUT";
-  err.preview = String(cleanedContent || "").slice(0, 500);
-  err.jobId = primaryJobId || null;
-  err.repairJobId = repairJobId;
-  throw err;
+  console.warn("[Cards] Returning fallback cards due to bad model output", {
+    preview: String(cleanedContent || "").slice(0, 200),
+    jobId: primaryJobId || null,
+    repairJobId,
+  });
+  return null;
 }
 function fallbackCards(text: string) {
   const chunks = cleanText(text).split(/[.!?]\s+/).slice(0, 20);
