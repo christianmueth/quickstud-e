@@ -882,13 +882,11 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
       : undefined;
 
   const modelName = process.env.RUNPOD_MODEL || "deepseek-r1";
-  const enableQaMode = process.env.FLASHCARDS_QA_MODE === "1";
-  // Q/A primary mode can require multiple LLM calls. When guided JSON is enabled we already have a
-  // deterministic JSON path, so skip Q/A mode entirely to reduce latency.
-  const preferQaForModel =
-    enableQaMode &&
-    !useGuidedJson &&
-    (/deepseek.*r1/i.test(modelName) || /\br1\b/i.test(modelName));
+  // For transcripts (esp. YouTube), JSON output often breaks due to unescaped quotes.
+  // DeepSeek-R1 tends to follow a simple Q/A format more reliably.
+  // Allow disabling via FLASHCARDS_QA_MODE=0.
+  const enableQaMode = process.env.FLASHCARDS_QA_MODE !== "0";
+  const preferQaForModel = enableQaMode && !useGuidedJson && (/deepseek.*r1/i.test(modelName) || /\br1\b/i.test(modelName));
   const n = Math.min(Math.max(count, 5), 50);
 
   function ensureQuestionMark(q: string) {
@@ -1018,6 +1016,7 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
     const qaResult = await callLLMResult(qaMessages, OPENAI_MAX_OUTPUT_TOKENS, 0, {
       topP: 1,
       stop: ["</final>"],
+      timeoutMs: Number(process.env.FLASHCARDS_PRIMARY_TIMEOUT_MS || 75_000),
     });
 
     return qaResult;
@@ -1041,80 +1040,18 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
     } else {
       const parsed1 = qa1.content ? parseCardsFromQA(qa1.content) : null;
       const cards: Array<{ question: string; answer: string }> = parsed1 ? [...parsed1] : [];
-      const preview = String(qa1.content || "").slice(0, 300);
-      if (cards.length === 0) {
-        console.warn("[Cards] Q/A output preview:", preview);
-      }
       console.log(`[Cards] Q/A primary returned ${qa1.content?.length || 0} chars, parsed ${cards.length}/${n}`);
-
-      if (cards.length > 0 && cards.length < n) {
-        const qa2 = await runQaPass(n - cards.length, cards);
-        if (qa2.ok && qa2.content) {
-          const parsed2 = parseCardsFromQA(qa2.content) || [];
-          console.log(`[Cards] Q/A continuation parsed ${parsed2.length} cards`);
-          cards.push(...parsed2);
-        }
-      }
 
       const unique = new Map<string, { question: string; answer: string }>();
       for (const c of cards) unique.set(c.question.toLowerCase(), c);
-      let deduped = Array.from(unique.values()).slice(0, n);
+      const deduped = Array.from(unique.values());
 
-      // If we got close but not exact, do a couple of cheap fill attempts.
-      // This avoids creating decks with 18/20 cards.
-      for (let attempt = 0; attempt < 2 && deduped.length < n; attempt++) {
-        const missing = n - deduped.length;
-        console.log(`[Cards] Q/A fill attempt ${attempt + 1}: missing ${missing}/${n}`);
-
-        const qaFill = await runQaPass(missing, deduped);
-        if (qaFill.ok && qaFill.content) {
-          const parsedFill = parseCardsFromQA(qaFill.content) || [];
-          if (parsedFill.length) {
-            for (const c of parsedFill) deduped.push(c);
-            const u2 = new Map<string, { question: string; answer: string }>();
-            for (const c of deduped) u2.set(c.question.toLowerCase(), c);
-            deduped = Array.from(u2.values()).slice(0, n);
-          }
-        }
+      // If we got a reasonable number of cards, use them and proceed.
+      if (deduped.length >= Math.min(n, 10)) {
+        return deduped.slice(0, n);
       }
 
-      // If still short and we have guided JSON available, fill the remainder strictly.
-      if (deduped.length < n && useGuidedJson) {
-        const missing = n - deduped.length;
-        console.log(`[Cards] Falling back to guided JSON to fill remaining ${missing}/${n}`);
-        const avoid = deduped.length
-          ? `\n\nAlready generated (do NOT repeat these questions):\n${deduped
-              .slice(0, 12)
-              .map((c, i) => `- ${i + 1}. ${c.question}`)
-              .join("\n")}`
-          : "";
-
-        const batchMessages = [
-          messages[0],
-          { role: "user" as const, content: `${buildFlashcardPrompt(llmSource, missing)}${avoid}` },
-        ];
-
-        const maxTokens = Math.min(OPENAI_MAX_OUTPUT_TOKENS, 45 * missing + 120);
-        const guided = await callLLMResult(batchMessages as any, maxTokens, 0, {
-          topP: 1,
-          guidedJson: makeGuidedJson(missing),
-        });
-
-        if (guided.ok) {
-          const cleaned = stripFence(guided.content || "");
-          const parsed = await parseCardsFromJsonLike(cleaned);
-          if (parsed && parsed.length) {
-            for (const c of parsed) deduped.push(c);
-            const u3 = new Map<string, { question: string; answer: string }>();
-            for (const c of deduped) u3.set(c.question.toLowerCase(), c);
-            deduped = Array.from(u3.values()).slice(0, n);
-          }
-        }
-      }
-
-      if (deduped.length === n) return deduped;
-
-      console.warn(`[Cards] Could not reach exact card count (${deduped.length}/${n}); falling back to JSON modes`);
+      console.warn(`[Cards] Q/A output too small (${deduped.length}/${n}); falling back to JSON modes`);
     }
   }
 
