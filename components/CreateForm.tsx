@@ -48,16 +48,6 @@ export default function CreateForm() {
     return nm.endsWith(".mp3") || nm.endsWith(".m4a") || nm.endsWith(".wav") || nm.endsWith(".ogg") || nm.endsWith(".webm");
   }
 
-  function isYouTubeUrl(raw: string): boolean {
-    try {
-      const u = new URL(raw);
-      const host = u.hostname.toLowerCase();
-      return host === "youtube.com" || host === "www.youtube.com" || host === "m.youtube.com" || host === "youtu.be";
-    } catch {
-      return false;
-    }
-  }
-
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (pending) return;
@@ -67,14 +57,6 @@ export default function CreateForm() {
     setPending(true);
 
     try {
-      // Option 1: Disable "paste a YouTube link" ingestion for reliability.
-      if (contentType === "url" && isYouTubeUrl(url)) {
-        toast.error(
-          "YouTube links aren’t supported right now. Please upload the audio/video file (mp3/m4a/mp4) or upload captions (.srt/.vtt)."
-        );
-        return;
-      }
-
       // Check file sizes for PDF/PPTX only (videos can be any size via Blob upload)
       const fileInput = form.querySelector<HTMLInputElement>('input[name="file"]');
       const pdfOrPptx = fileInput?.files?.[0];
@@ -224,6 +206,13 @@ export default function CreateForm() {
         if (j?.code === "YT_URL_DISABLED") {
           toast.error(
             `YouTube links aren’t supported right now. Please upload the audio/video file (mp3/m4a/mp4) or upload captions (.srt/.vtt).${tid ? ` (traceId: ${tid})` : ""}`
+          );
+          return;
+        }
+
+        if (j?.code === "SUPADATA_FAILED" || String(j?.code || "").startsWith("SUPADATA_")) {
+          toast.error(
+            `Couldn’t fetch a transcript for that YouTube link. Try uploading the audio/video (mp3/m4a/mp4) or captions (.srt/.vtt).${tid ? ` (traceId: ${tid})` : ""}`
           );
           return;
         }

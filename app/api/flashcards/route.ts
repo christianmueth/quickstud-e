@@ -7,6 +7,7 @@ import { put } from "@vercel/blob";
 import { transcribeAudioUrlWithRunpod } from "@/lib/asrClient";
 import { transcribeYoutubeUrlWithRunpod } from "@/lib/runpodYoutubeClient";
 import { transcribeYoutubeViaAsrWorker } from "@/lib/youtubeAsrWorkerClient";
+import { fetchSupadataTranscript, hasSupadataConfigured } from "@/lib/supadata";
 
 export const runtime = "nodejs";         // node runtime to allow larger bodies locally
 export const dynamic = "force-dynamic";
@@ -1679,11 +1680,35 @@ export async function POST(req: Request) {
       try {
         const u = new URL(urlStr);
         if (isYouTubeHostname(u.hostname)) {
-          if (DISABLE_YOUTUBE_URLS) {
+          // Prefer Supadata for YouTube transcripts (reliable from Vercel).
+          if (hasSupadataConfigured()) {
+            const supa = await fetchSupadataTranscript({ youtubeUrl: u.toString() });
+            if (supa.ok) {
+              source = truncate(cleanText(supa.transcript));
+              origin = "youtube";
+            } else {
+              // If YouTube URLs are disabled, fail loudly instead of trying legacy YouTube scraping/download.
+              if (DISABLE_YOUTUBE_URLS) {
+                return NextResponse.json(
+                  {
+                    error:
+                      "Failed to fetch a YouTube transcript. Please upload the audio/video file (mp3/m4a/mp4) or upload captions (.srt/.vtt).",
+                    code: "SUPADATA_FAILED",
+                    traceId,
+                    diag: { provider: "supadata", reason: supa.reason, httpStatus: supa.httpStatus ?? null },
+                  },
+                  { status: supa.reason === "NOT_CONFIGURED" ? 500 : 502 }
+                );
+              }
+            }
+          }
+
+          // If Supadata isn't configured (or didn't produce a transcript) and YouTube URLs are disabled, stop here.
+          if (!source && DISABLE_YOUTUBE_URLS) {
             return NextResponse.json(
               {
                 error:
-                  "YouTube links aren’t supported right now. Please upload the audio/video file (mp3/m4a/mp4) or upload captions (.srt/.vtt).",
+                  "YouTube links require transcripts via Supadata. Please upload the audio/video file (mp3/m4a/mp4) or upload captions (.srt/.vtt).",
                 code: "YT_URL_DISABLED",
                 traceId,
                 url: u.toString(),
@@ -1692,7 +1717,9 @@ export async function POST(req: Request) {
             );
           }
 
-          const ytDiag: any = {
+          // Legacy fallbacks are only reachable when DISABLE_YOUTUBE_URLS=0.
+          if (!source) {
+            const ytDiag: any = {
             videoId: getYouTubeId(u),
             captions: { attempted: false, ok: false, error: null as string | null },
             asrWorker: { attempted: false, ok: false, error: null as string | null, configured: false },
@@ -1709,7 +1736,7 @@ export async function POST(req: Request) {
               VERCEL_ENV: process.env.VERCEL_ENV || null,
               VERCEL_GIT_COMMIT_SHA: process.env.VERCEL_GIT_COMMIT_SHA || null,
             },
-          };
+            };
 
           try {
             const yt = await extractFromYouTubeStrict(u);
@@ -1931,6 +1958,7 @@ export async function POST(req: Request) {
                 { status: 400 }
               );
             }
+          }
           }
         } else {
           const web = await extractFromWebsite(u);
