@@ -463,7 +463,14 @@ export async function callLLMResult(
 
       const statusUrl = buildRunpodStatusUrl(endpoint, String(jobId));
       const startedAt = Date.now();
-      const timeoutMs = Math.max(15_000, Number(process.env.RUNPOD_ASYNC_TIMEOUT_MS || 120_000));
+      const defaultAsyncTimeoutMs = Math.max(15_000, Number(process.env.RUNPOD_ASYNC_TIMEOUT_MS || 120_000));
+      const requestedTimeoutMs =
+        typeof options?.timeoutMs === "number" && Number.isFinite(options.timeoutMs)
+          ? Math.floor(options.timeoutMs)
+          : null;
+      const timeoutMs = requestedTimeoutMs
+        ? Math.max(15_000, Math.min(defaultAsyncTimeoutMs, requestedTimeoutMs))
+        : defaultAsyncTimeoutMs;
       const intervalMs = Math.max(250, Number(process.env.RUNPOD_ASYNC_POLL_INTERVAL_MS || 1500));
       let pollCount = 0;
       let lastStatus = "";

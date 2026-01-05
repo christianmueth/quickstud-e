@@ -880,7 +880,8 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
       : undefined;
 
   const modelName = process.env.RUNPOD_MODEL || "deepseek-r1";
-  const preferQaForModel = /deepseek.*r1/i.test(modelName) || /\br1\b/i.test(modelName);
+  const enableQaMode = process.env.FLASHCARDS_QA_MODE === "1";
+  const preferQaForModel = enableQaMode && (/deepseek.*r1/i.test(modelName) || /\br1\b/i.test(modelName));
   const n = Math.min(Math.max(count, 5), 50);
 
   function ensureQuestionMark(q: string) {
@@ -1210,6 +1211,7 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
   const result = await callLLMResult(messages, OPENAI_MAX_OUTPUT_TOKENS, 0, {
     topP: 1,
     guidedJson: undefined,
+    timeoutMs: Number(process.env.FLASHCARDS_PRIMARY_TIMEOUT_MS || 75_000),
   });
   if (!result.ok) {
     if (result.reason === "TIMEOUT" && String(result.lastStatus || "").toUpperCase() === "IN_QUEUE") {
