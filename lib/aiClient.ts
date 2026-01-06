@@ -240,12 +240,19 @@ export async function callLLMResult(
   // For async /run endpoints, prefer the native /run + /status polling path to avoid
   // gateway/proxy timeouts on platforms like Vercel.
   const forceOpenAICompat = process.env.RUNPOD_OPENAI_COMPAT_FORCE === "1";
+  // Exception: when we need structured output (flashcards), the OpenAI-compat path can be
+  // significantly more reliable because it supports `response_format` / `json_schema`.
+  // Allow enabling it for async /run endpoints via force flag (or by opting into it).
+  const allowOpenAICompatForAsyncStructured =
+    isAsyncRun &&
+    wantsStructuredOutput &&
+    (forceOpenAICompat || process.env.RUNPOD_OPENAI_COMPAT_STRUCTURED === "1");
+
   const useOpenAICompat =
-    !isAsyncRun &&
-    (forceOpenAICompat ||
-      process.env.RUNPOD_OPENAI_COMPAT === "1" ||
-      process.env.RUNPOD_GUIDED_JSON === "1" ||
-      wantsStructuredOutput);
+    forceOpenAICompat ||
+    allowOpenAICompatForAsyncStructured ||
+    (!isAsyncRun &&
+      (process.env.RUNPOD_OPENAI_COMPAT === "1" || process.env.RUNPOD_GUIDED_JSON === "1" || wantsStructuredOutput));
   // OpenAI-compat endpoints can be slower on cold starts and during queueing.
   // Keep this configurable; default higher than 45s to avoid premature timeouts.
   const defaultOpenAICompatTimeoutMs = Number(process.env.RUNPOD_OPENAI_COMPAT_TIMEOUT_MS || 90_000);

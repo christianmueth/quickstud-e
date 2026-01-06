@@ -12,6 +12,26 @@
  */
 
 import process from "process";
+import fs from "node:fs";
+import path from "node:path";
+
+function loadDotenvLike(filePath) {
+  if (!fs.existsSync(filePath)) return;
+  const lines = fs.readFileSync(filePath, "utf8").split(/\r?\n/);
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const m = trimmed.match(/^([A-Z0-9_]+)=(.*)$/);
+    if (!m) continue;
+    const key = m[1];
+    let value = m[2] ?? "";
+    value = value.trim();
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1);
+    }
+    if (!process.env[key]) process.env[key] = value;
+  }
+}
 
 function parseArgs(argv) {
   const args = {};
@@ -75,6 +95,11 @@ async function fetchText(url, headers, body) {
 }
 
 async function main() {
+  // Load local env files to make running this probe easy.
+  const repoRoot = process.cwd();
+  loadDotenvLike(path.join(repoRoot, ".env.local"));
+  loadDotenvLike(path.join(repoRoot, ".env"));
+
   const args = parseArgs(process.argv.slice(2));
   if (args.help || args.h) {
     printHelp();
