@@ -1101,7 +1101,13 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
       const remainingBudgetMs = wallClockBudgetMs - (Date.now() - startedAt);
       // Ensure we never start a call that cannot complete before our own budget expires.
       // This avoids Vercel killing the function without a structured error response.
-      const perCallTimeoutMs = Math.max(8_000, Math.min(50_000, remainingBudgetMs - 1_500));
+      const envPerCallCapMs = Number(process.env.FLASHCARDS_PER_CALL_TIMEOUT_CAP_MS || "");
+      const perCallCapMs =
+        Number.isFinite(envPerCallCapMs) && envPerCallCapMs > 0
+          ? Math.floor(envPerCallCapMs)
+          // Default higher than 50s to tolerate RunPod queueing.
+          : 110_000;
+      const perCallTimeoutMs = Math.max(8_000, Math.min(perCallCapMs, remainingBudgetMs - 1_500));
       if (perCallTimeoutMs < 8_000) {
         const err: any = new Error("AI generation took too long. Try fewer cards or retry.");
         err.code = "RUNPOD_TIMEOUT";
