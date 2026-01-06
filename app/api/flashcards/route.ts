@@ -915,7 +915,21 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
       answer?: string;
     }>;
     try {
-      arr = JSON.parse(jsonText) as any;
+      const parsed = JSON.parse(jsonText) as any;
+      if (Array.isArray(parsed)) {
+        arr = parsed;
+      } else if (parsed && typeof parsed === "object") {
+        // Some models wrap results: { cards: [...] } or { flashcards: [...] }
+        const candidate =
+          (Array.isArray(parsed.cards) && parsed.cards) ||
+          (Array.isArray(parsed.flashcards) && parsed.flashcards) ||
+          (Array.isArray(parsed.items) && parsed.items) ||
+          (Array.isArray(parsed.data) && parsed.data);
+        if (candidate) arr = candidate;
+        else return null;
+      } else {
+        return null;
+      }
     } catch {
       return null;
     }
@@ -1167,11 +1181,16 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
           console.warn("[Cards] Guided JSON parse failed; recovered cards via Q/A parsing");
           for (const c of parsedQa) cards.push(c);
         } else {
-          console.warn("[Cards] Guided JSON parse failed; returning fallback cards", {
-            preview: String(cleaned || "").slice(0, 200),
+          const preview = String(cleaned || "").slice(0, 220);
+          console.warn("[Cards] Guided JSON parse failed; cannot recover cards", {
+            preview,
             jobId: result.jobId || null,
           });
-          return null;
+          const err: any = new Error("RunPod returned an invalid format (expected JSON flashcards)");
+          err.code = "RUNPOD_BAD_OUTPUT";
+          err.preview = preview;
+          err.jobId = result.jobId || null;
+          throw err;
         }
       } else {
         for (const c of parsed) cards.push(c);
