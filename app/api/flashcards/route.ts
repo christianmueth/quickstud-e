@@ -884,11 +884,9 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
     { role: "user" as const, content: buildFlashcardPrompt(llmSource, count) },
   ];
 
-  // Guided JSON is the most reliable way to force structured output from RunPod/vLLM.
-  // Default ON when the endpoint advertises support (RUNPOD_GUIDED_JSON=1).
-  // Allow explicit opt-out via FLASHCARDS_USE_GUIDED_JSON=0.
-  const guidedJsonSupported = process.env.RUNPOD_GUIDED_JSON === "1";
-  const useGuidedJson = guidedJsonSupported && process.env.FLASHCARDS_USE_GUIDED_JSON !== "0";
+  // Guided JSON (via OpenAI-compat `response_format: json_schema`) is the most reliable way
+  // to force structured output from this endpoint. Default ON; allow opt-out.
+  const useGuidedJson = process.env.FLASHCARDS_USE_GUIDED_JSON !== "0";
   console.log(
     `[Cards] Guided JSON mode=${useGuidedJson ? "on" : "off"} (FLASHCARDS_USE_GUIDED_JSON=${process.env.FLASHCARDS_USE_GUIDED_JSON ?? "(default)"}, RUNPOD_GUIDED_JSON=${process.env.RUNPOD_GUIDED_JSON || "0"})`
   );
@@ -1528,6 +1526,10 @@ export async function POST(req: Request) {
 
     // Origin tracking
     let origin: "text" | "url" | "youtube" | "video" | "pdf" | "pptx" | "unknown" = "unknown";
+
+    // If the user provided raw text directly, mark origin now.
+    // Note: `source` is already populated from the form at this point.
+    if (source) origin = "text";
 
     // 0) Video file - prefer RunPod ASR by URL (fast); fallback to local ffmpeg + Whisper only if needed.
     if (!source && (video || videoUrl)) {
