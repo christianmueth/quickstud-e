@@ -8,7 +8,9 @@
     "build": "next build",
     "start": "next start",
     "postinstall": "prisma generate",
-    "flashcards:smoketest": "node scripts/flashcards-smoketest.mjs"
+    "flashcards:smoketest": "node scripts/flashcards-smoketest.mjs",
+    "flashcards:contract:qa": "node scripts/flashcards-llm-contract-test.mjs --mode qa",
+    "flashcards:contract:json": "node scripts/flashcards-llm-contract-test.mjs --mode json"
   },
   "dependencies": {
     "@clerk/nextjs": "^6.31.9",

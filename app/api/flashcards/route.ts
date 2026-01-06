@@ -803,6 +803,31 @@ Material:
 ${text}`;
 }
 
+function buildFlashcardPromptGuided(text: string, count: number) {
+  const n = Math.min(Math.max(count, 5), 50);
+  return `Generate EXACTLY ${n} flashcards from the material.
+
+ABSOLUTE OUTPUT FORMAT (must be valid JSON matching the schema):
+- Output MUST be a JSON object with a top-level key "cards".
+- "cards" MUST be a JSON array of EXACTLY ${n} items.
+- No preface, no explanation, no markdown, no code fences.
+
+Object shape:
+{
+  "cards": [
+    {"q":"...","a":"..."}
+  ]
+}
+
+Rules:
+- One concept per card
+- Questions are specific and testable
+- Answers are concise (1–2 sentences, max ${MAX_A_CHARS} characters)
+
+Material:
+${text}`;
+}
+
 function buildFlashcardPromptQA(text: string, count: number) {
   const n = Math.min(Math.max(count, 5), 50);
   return `Generate EXACTLY ${n} flashcards from the material.
@@ -870,16 +895,25 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
   const makeGuidedJson = (n: number) =>
     useGuidedJson
       ? {
-          type: "array",
-          minItems: n,
-          maxItems: n,
-          items: {
-            type: "object",
-            additionalProperties: false,
-            required: ["q", "a"],
-            properties: {
-              q: { type: "string", minLength: 8, maxLength: Math.max(40, MAX_Q_CHARS) },
-              a: { type: "string", minLength: 12, maxLength: Math.max(80, MAX_A_CHARS) },
+          // Note: some OpenAI-compatible servers are flaky with top-level array schemas.
+          // Wrapping in an object (cards: [...]) is more consistently honored.
+          type: "object",
+          additionalProperties: false,
+          required: ["cards"],
+          properties: {
+            cards: {
+              type: "array",
+              minItems: n,
+              maxItems: n,
+              items: {
+                type: "object",
+                additionalProperties: false,
+                required: ["q", "a"],
+                properties: {
+                  q: { type: "string", minLength: 8, maxLength: Math.max(40, MAX_Q_CHARS) },
+                  a: { type: "string", minLength: 12, maxLength: Math.max(80, MAX_A_CHARS) },
+                },
+              },
             },
           },
         }
@@ -1135,8 +1169,15 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
         : "";
 
       const batchMessages = [
-        messages[0],
-        { role: "user" as const, content: `${buildFlashcardPrompt(llmSource, m)}${avoid}` },
+        {
+          role: "system" as const,
+          content:
+            "You generate flashcards. Output ONLY valid JSON that matches the provided schema. No analysis, no reasoning, no markdown, no extra text.",
+        },
+        {
+          role: "user" as const,
+          content: `${buildFlashcardPromptGuided(llmSource, m)}${avoid}`,
+        },
       ];
 
       // Keep tokens proportional to requested cards to reduce latency.
