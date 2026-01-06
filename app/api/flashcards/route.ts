@@ -2058,6 +2058,16 @@ export async function POST(req: Request) {
     try {
       aiCards = await generateCardsWithOpenAI(source, cardCount);
     } catch (e: any) {
+      if (e?.code === "AI_NO_FLASHCARDS") {
+        return NextResponse.json(
+          {
+            error:
+              "AI did not return parseable flashcards. Please retry. If this persists, the RunPod template/model likely isn't honoring guided JSON.",
+            code: "AI_NO_FLASHCARDS",
+          },
+          { status: 502 }
+        );
+      }
       if (e?.code === "RUNPOD_IN_QUEUE") {
         return NextResponse.json(
           {
@@ -2097,6 +2107,12 @@ export async function POST(req: Request) {
       throw e;
     }
     const cards = aiCards ?? (() => {
+      const allowFallback = process.env.FLASHCARDS_ALLOW_FALLBACK === "1";
+      if (process.env.NODE_ENV === "production" && !allowFallback) {
+        // Creating a deck with sentence-chunks looks like a successful run but isn't useful.
+        // Fail loudly so the user can retry and we can observe the real error mode.
+        throw Object.assign(new Error("AI did not return parseable flashcards."), { code: "AI_NO_FLASHCARDS" });
+      }
       console.warn("[Cards] ⚠️ USING FALLBACK CARDS - AI generation failed or unavailable");
       return fallbackCards(source).map((c) => ({ question: c.question, answer: c.answer }));
     })();

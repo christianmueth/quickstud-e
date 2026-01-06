@@ -424,19 +424,29 @@ export async function callLLMResult(
     if (typeof options?.topP === "number") input.top_p = options.topP;
     if (Array.isArray(options?.stop) && options!.stop!.length > 0) input.stop = options!.stop;
 
-    // Some vLLM servers support JSON-schema/grammar guidance via a `guided_json` field.
-    // This is optional and template-dependent; leave it unset unless the caller explicitly passes it.
+    // Some vLLM/RunPod templates support JSON-schema/grammar guidance via `guided_json`.
+    // Others only accept these controls when nested under `extra_body`.
+    // To maximize compatibility, when structured controls are provided, send them in both places.
     // Prefer passing raw JSON (object/array) rather than a stringified schema.
+    const extraBody: Record<string, unknown> = {
+      ...(options?.extraBody || {}),
+    };
+
     if (options?.guidedJson != null) {
       input.guided_json = options.guidedJson;
+      if (extraBody.guided_json == null) extraBody.guided_json = options.guidedJson;
+      if (process.env.RUNPOD_GUIDED_DECODING_BACKEND && extraBody.guided_decoding_backend == null) {
+        extraBody.guided_decoding_backend = process.env.RUNPOD_GUIDED_DECODING_BACKEND;
+      }
     }
 
     if (options?.responseFormat != null) {
       input.response_format = options.responseFormat;
+      if (extraBody.response_format == null) extraBody.response_format = options.responseFormat;
     }
 
-    if (options?.extraBody && Object.keys(options.extraBody).length) {
-      input.extra_body = options.extraBody;
+    if (Object.keys(extraBody).length) {
+      input.extra_body = extraBody;
     }
 
     const body = JSON.stringify({ input });
