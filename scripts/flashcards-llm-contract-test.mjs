@@ -52,6 +52,7 @@ function parseArgs(argv) {
     key: null,
     model: null,
     timeoutMs: 90_000,
+    retries: 1,
   };
 
   for (let i = 0; i < argv.length; i++) {
@@ -64,6 +65,10 @@ function parseArgs(argv) {
     else if (a === "--key" && next) out.key = next;
     else if (a === "--model" && next) out.model = next;
     else if (a === "--timeout" && next) out.timeoutMs = Number(next) || out.timeoutMs;
+    else if (a === "--retries" && next) {
+      const v = Number(next);
+      if (Number.isFinite(v)) out.retries = v;
+    }
     else if (a === "--help" || a === "-h") out.help = true;
   }
   return out;
@@ -79,6 +84,7 @@ function help() {
       "  --cards <n>             Card count (default: 10)",
       "  --text <string>         Source text material",
       "  --timeout <ms>          Request timeout in ms (default: 90000)",
+      "  --retries <n>           QA mode repair retries (default: 1)",
       "  --endpoint <url>        Override RUNPOD_ENDPOINT",
       "  --key <token>           Override RUNPOD_API_KEY",
       "  --model <id>            Override RUNPOD_MODEL",
@@ -107,6 +113,32 @@ function normalizeLine(line) {
   s = s.replace(/^\*\*(Q|Question|A|Answer)\*\*\s*([:\-])/i, "$1$2");
   s = s.replace(/^__(Q|Question|A|Answer)__\s*([:\-])/i, "$1$2");
   return s.trim();
+}
+
+function stripThinkBlocks(text) {
+  // Some DeepSeek-style models emit chain-of-thought. Encourage them to wrap it in <think>...</think>.
+  // If they do, remove it to recover clean Q/A parsing.
+  return String(text || "")
+    .replace(/<think>[\s\S]*?<\/think>\s*/gi, "")
+    .replace(/<\/think>\s*/gi, "")
+    .trim();
+}
+
+function stripLeadingBeforeFirstQA(text) {
+  const s = String(text || "").replace(/\r\n/g, "\n");
+  const m = s.match(/(^|\n)\s*(?:\d+\s*[).\-]\s*)?(?:Q|Question)\s*[:\-]/i);
+  if (!m || typeof m.index !== "number") return s;
+  return s.slice(m.index).replace(/^\n+/, "");
+}
+
+function extractBetweenMarkers(text, beginMarker, endMarker) {
+  const s = String(text || "");
+  const begin = s.indexOf(beginMarker);
+  if (begin === -1) return null;
+  const afterBegin = begin + beginMarker.length;
+  const end = s.indexOf(endMarker, afterBegin);
+  if (end === -1) return s.slice(afterBegin);
+  return s.slice(afterBegin, end);
 }
 
 function parseCardsFromQA(text, n) {
@@ -232,6 +264,33 @@ async function postJson(url, headers, body, timeoutMs) {
   }
 }
 
+async function callChatCompletion(chatUrl, headers, body, timeoutMs) {
+  const res = await postJson(chatUrl, headers, body, timeoutMs);
+  console.log("[contract] POST /chat/completions ->", res.resp.status);
+  if (!res.resp.ok) {
+    console.log(res.text.slice(0, 1200));
+    return { ok: false, status: res.resp.status, text: res.text, content: null };
+  }
+
+  try {
+    const j = JSON.parse(res.text);
+    const content = j?.choices?.[0]?.message?.content ?? null;
+    return { ok: true, status: res.resp.status, text: res.text, content: typeof content === "string" ? content : null };
+  } catch {
+    return { ok: true, status: res.resp.status, text: res.text, content: null };
+  }
+}
+
+function ensureTmpDir(repoRoot) {
+  const dir = path.join(repoRoot, "tmp");
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+  } catch {
+    // ignore
+  }
+  return dir;
+}
+
 async function main() {
   const repoRoot = process.cwd();
   loadDotenvLike(path.join(repoRoot, ".env.local"));
@@ -280,52 +339,92 @@ async function main() {
   console.log("[contract] chat model used:", effectiveModel);
 
   if (String(args.mode).toLowerCase() === "qa") {
-    const prompt = `Generate EXACTLY ${n} flashcards from the material.\n\nABSOLUTE OUTPUT FORMAT (NO JSON):\n- Output ONLY flashcards in this repeated block format.\n- No preface, no explanation, no markdown, no code fences, no numbering.\n- The FIRST characters of your response MUST be 'Q:' (no leading whitespace).\n\nFormat (repeat EXACTLY ${n} times):\nQ: <question>\nA: <answer>\n---\n\nAfter the final '---', output the single token:\n</final>\n\nMaterial:\n${args.text}`;
+    const BEGIN = "<<<FLASHCARDS_BEGIN>>>";
+    const END = "<<<FLASHCARDS_END>>>";
 
-    const body = {
+    const baseSystem =
+      "You are a flashcard generator. Output ONLY the requested flashcards." +
+      " Do not include analysis or reasoning. If you must think, put it inside <think>...</think> and then output ONLY the required format.";
+
+    const basePrompt = `Generate EXACTLY ${n} flashcards from the material.\n\nABSOLUTE OUTPUT FORMAT (NO JSON):\n- Output ONLY flashcards in this repeated block format.\n- No preface, no explanation, no markdown, no code fences.\n- Use the markers exactly.\n\nBegin your output with the marker '${BEGIN}' on its own line, then ${n} blocks, then end with marker '${END}' on its own line.\n\nBlock format (repeat EXACTLY ${n} times):\nQ: <question>\nA: <answer>\n---\n\nMaterial:\n${args.text}`;
+
+    const attemptBodies = [];
+    attemptBodies.push({
       model: effectiveModel,
       messages: [
-        { role: "system", content: "You are a flashcard generator. Output ONLY Q/A blocks in the required format. No reasoning. No extra text." },
-        { role: "user", content: prompt },
+        { role: "system", content: baseSystem },
+        { role: "user", content: basePrompt },
       ],
       temperature: 0,
-      max_tokens: 1400,
-      stop: ["</final>"],
-    };
+      max_tokens: 1600,
+      stop: [END],
+    });
 
-    const res = await postJson(chatUrl, headers, body, args.timeoutMs);
-    console.log("[contract] POST /chat/completions ->", res.resp.status);
-    if (!res.resp.ok) {
-      console.log(res.text.slice(0, 800));
-      process.exit(2);
+    let lastRaw = "";
+    let bestCards = null;
+
+    const maxAttempts = Math.max(1, Math.min(3, Number(args.retries) + 1));
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      if (attempt > 0) {
+        console.log(`[contract] QA retry ${attempt}/${maxAttempts - 1} (repair pass)`);
+      }
+
+      const body = attemptBodies[attempt] || attemptBodies[0];
+      const r = await callChatCompletion(chatUrl, headers, body, args.timeoutMs);
+      if (!r.ok) process.exit(2);
+      const content = r.content;
+      if (!content) {
+        console.log("[contract] no content");
+        console.log(String(r.text || "").slice(0, 1200));
+        process.exit(3);
+      }
+
+      lastRaw = content;
+      const cleaned = stripThinkBlocks(content);
+      const sliced = extractBetweenMarkers(cleaned, BEGIN, END) || cleaned;
+      const withoutLeading = stripLeadingBeforeFirstQA(sliced);
+      const cards = parseCardsFromQA(withoutLeading, n);
+
+      console.log("[contract] raw preview:", String(content).slice(0, 240));
+      console.log("[contract] parsed:", cards ? `${cards.length}/${n}` : "0");
+
+      if (cards && cards.length >= n) {
+        bestCards = cards;
+        break;
+      }
+
+      if (!attemptBodies[attempt + 1]) {
+        // Repair pass: ask the model to reformat *its own output* into strict blocks.
+        const repairPrompt = `Rewrite the following into EXACTLY ${n} flashcards using ONLY the required block format.\n\nRules:\n- Output must be ONLY between markers '${BEGIN}' and '${END}'.\n- Start with '${BEGIN}' on its own line and end with '${END}' on its own line.\n- No preface, no explanations, no markdown, no numbering.\n- Each card must be:\nQ: ...\nA: ...\n---\n\nText to rewrite:\n${cleaned}`;
+        attemptBodies.push({
+          model: effectiveModel,
+          messages: [
+            { role: "system", content: baseSystem },
+            { role: "user", content: repairPrompt },
+          ],
+          temperature: 0,
+          max_tokens: 1600,
+          stop: [END],
+        });
+      }
     }
 
-    let content = null;
-    try {
-      const j = JSON.parse(res.text);
-      content = j?.choices?.[0]?.message?.content ?? null;
-    } catch {
-      content = null;
-    }
-
-    if (!content) {
-      console.log("[contract] no content");
-      console.log(res.text.slice(0, 800));
-      process.exit(3);
-    }
-
-    const cards = parseCardsFromQA(content, n);
-    console.log("[contract] raw preview:", String(content).slice(0, 240));
-    console.log("[contract] parsed:", cards ? `${cards.length}/${n}` : "0");
-
-    if (!cards || cards.length < n) {
+    if (!bestCards || bestCards.length < n) {
+      const tmpDir = ensureTmpDir(repoRoot);
+      const outPath = path.join(tmpDir, "flashcards-contract-qa-fail.txt");
+      try {
+        fs.writeFileSync(outPath, String(lastRaw || ""), "utf8");
+      } catch {
+        // ignore
+      }
       console.log("[contract] FAIL: could not parse required Q/A cards");
+      console.log("[contract] wrote raw output to:", outPath);
       process.exit(10);
     }
 
     console.log("[contract] PASS");
     console.log("[contract] first card:");
-    console.log(cards[0]);
+    console.log(bestCards[0]);
     process.exit(0);
   }
 
