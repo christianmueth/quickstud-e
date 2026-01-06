@@ -16,6 +16,25 @@ bun dev
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
+## Flashcards Local Smoketest
+
+Run this to verify RunPod output is parseable (bypasses auth using `FLASHCARDS_TEST_KEY`).
+
+1) Terminal A:
+
+```bash
+npm run dev
+```
+
+2) Terminal B:
+
+```bash
+set FLASHCARDS_TEST_KEY=localtest
+npm run flashcards:smoketest -- --text "Water expands when it freezes..."
+```
+
+If the AI endpoint is misbehaving, the response will include an error code like `AI_NO_FLASHCARDS`.
+
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
