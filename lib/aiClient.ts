@@ -240,18 +240,24 @@ export async function callLLMResult(
   // For async /run endpoints, prefer the native /run + /status polling path to avoid
   // gateway/proxy timeouts on platforms like Vercel.
   const forceOpenAICompat = process.env.RUNPOD_OPENAI_COMPAT_FORCE === "1";
-  // Exception: when we need structured output (flashcards), the OpenAI-compat path can be
-  // significantly more reliable because it supports `response_format` / `json_schema`.
-  // However, on platforms like Vercel, long-lived OpenAI-compat requests can time out.
-  // Default to /run + status polling for async endpoints unless explicitly enabled.
-  const allowOpenAICompatForAsyncStructured =
-    isAsyncRun && wantsStructuredOutput && (forceOpenAICompat || process.env.RUNPOD_OPENAI_COMPAT_STRUCTURED === "1");
+  // For async /run endpoints, prefer native /run + /status polling.
+  // OpenAI-compat is a long-lived synchronous HTTP request and can time out on Vercel.
+  // Only use it for async endpoints when explicitly forced.
+  const allowOpenAICompatForAsyncStructured = isAsyncRun && wantsStructuredOutput && forceOpenAICompat;
 
   const useOpenAICompat =
     forceOpenAICompat ||
     allowOpenAICompatForAsyncStructured ||
     (!isAsyncRun &&
       (process.env.RUNPOD_OPENAI_COMPAT === "1" || process.env.RUNPOD_GUIDED_JSON === "1" || wantsStructuredOutput));
+
+  console.log(
+    `[aiClient] Transport decision: isAsyncRun=${isAsyncRun} wantsStructured=${wantsStructuredOutput} ` +
+      `RUNPOD_OPENAI_COMPAT=${process.env.RUNPOD_OPENAI_COMPAT || "0"} ` +
+      `RUNPOD_OPENAI_COMPAT_STRUCTURED=${process.env.RUNPOD_OPENAI_COMPAT_STRUCTURED || "(unset)"} ` +
+      `RUNPOD_OPENAI_COMPAT_FORCE=${process.env.RUNPOD_OPENAI_COMPAT_FORCE || "0"} ` +
+      `=> useOpenAICompat=${useOpenAICompat}`
+  );
   // OpenAI-compat endpoints can be slower on cold starts and during queueing.
   // If the caller provides a timeout, respect it (don't cap it to the default).
   const defaultOpenAICompatTimeoutMs = Number(process.env.RUNPOD_OPENAI_COMPAT_TIMEOUT_MS || 90_000);
@@ -346,8 +352,6 @@ export async function callLLMResult(
             resp = await doPost(makeBody({}));
           } catch (e: any) {
             const msg = String(e?.message || e || "openai-compat request failed");
-            // For structured-output use cases (flashcards), falling back to /run often produces
-            // unstructured output and causes downstream parse failures. Treat timeouts as TIMEOUT.
             if (String(e?.name || "").toLowerCase() === "aborterror") {
               console.warn(`[aiClient] OpenAI-compatible request timed out (AbortError): ${msg}`);
               return { ok: false, reason: "TIMEOUT", lastStatus: "OPENAI_COMPAT_TIMEOUT" };
