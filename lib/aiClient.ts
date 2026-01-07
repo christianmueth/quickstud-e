@@ -242,10 +242,10 @@ export async function callLLMResult(
   const forceOpenAICompat = process.env.RUNPOD_OPENAI_COMPAT_FORCE === "1";
   // Exception: when we need structured output (flashcards), the OpenAI-compat path can be
   // significantly more reliable because it supports `response_format` / `json_schema`.
-  // Allow enabling it for async /run endpoints via force flag (or by opting into it).
-  const disableOpenAICompatForAsyncStructured = process.env.RUNPOD_OPENAI_COMPAT_STRUCTURED === "0";
+  // However, on platforms like Vercel, long-lived OpenAI-compat requests can time out.
+  // Default to /run + status polling for async endpoints unless explicitly enabled.
   const allowOpenAICompatForAsyncStructured =
-    isAsyncRun && wantsStructuredOutput && (forceOpenAICompat || !disableOpenAICompatForAsyncStructured);
+    isAsyncRun && wantsStructuredOutput && (forceOpenAICompat || process.env.RUNPOD_OPENAI_COMPAT_STRUCTURED === "1");
 
   const useOpenAICompat =
     forceOpenAICompat ||
