@@ -253,12 +253,12 @@ export async function callLLMResult(
     (!isAsyncRun &&
       (process.env.RUNPOD_OPENAI_COMPAT === "1" || process.env.RUNPOD_GUIDED_JSON === "1" || wantsStructuredOutput));
   // OpenAI-compat endpoints can be slower on cold starts and during queueing.
-  // Keep this configurable; default higher than 45s to avoid premature timeouts.
+  // If the caller provides a timeout, respect it (don't cap it to the default).
   const defaultOpenAICompatTimeoutMs = Number(process.env.RUNPOD_OPENAI_COMPAT_TIMEOUT_MS || 90_000);
   const openAICompatTimeoutMs =
     typeof options?.timeoutMs === "number" && Number.isFinite(options.timeoutMs)
-      ? Math.max(1_000, Math.min(defaultOpenAICompatTimeoutMs, Math.floor(options.timeoutMs)))
-      : defaultOpenAICompatTimeoutMs;
+      ? Math.max(1_000, Math.min(300_000, Math.floor(options.timeoutMs)))
+      : Math.max(1_000, Math.min(300_000, Math.floor(defaultOpenAICompatTimeoutMs)));
 
   try {
     console.log(
@@ -346,8 +346,14 @@ export async function callLLMResult(
             resp = await doPost(makeBody({}));
           } catch (e: any) {
             const msg = String(e?.message || e || "openai-compat request failed");
-            // Important: AbortError/timeouts should fall back to the regular /run flow so we can
-            // get a job id + status polling (and surface IN_QUEUE vs truly dead endpoints).
+            // For structured-output use cases (flashcards), falling back to /run often produces
+            // unstructured output and causes downstream parse failures. Treat timeouts as TIMEOUT.
+            if (String(e?.name || "").toLowerCase() === "aborterror") {
+              console.warn(`[aiClient] OpenAI-compatible request timed out (AbortError): ${msg}`);
+              return { ok: false, reason: "TIMEOUT", lastStatus: "OPENAI_COMPAT_TIMEOUT" };
+            }
+
+            // Non-timeout failures can still fall back to /run.
             console.warn(`[aiClient] OpenAI-compatible request threw (${e?.name || "Error"}): ${msg}. Falling back to /run.`);
             break;
           }

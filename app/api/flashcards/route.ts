@@ -1122,8 +1122,8 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
     const wallClockBudgetMs =
       Number.isFinite(envBudgetMs) && envBudgetMs > 0
         ? Math.floor(envBudgetMs)
-        // Default to 120s; this route sets maxDuration=300.
-        : 120_000;
+        // Default to 240s; this route sets maxDuration=300.
+        : 240_000;
 
     // If FLASHCARDS_BATCH_SIZE is not set, default to a single call for typical counts (e.g. 20)
     // to avoid paying prompt overhead multiple times.
@@ -1152,7 +1152,7 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
         Number.isFinite(envPerCallCapMs) && envPerCallCapMs > 0
           ? Math.floor(envPerCallCapMs)
           // Default higher than 50s to tolerate RunPod queueing.
-          : 110_000;
+          : 170_000;
       const perCallTimeoutMs = Math.max(8_000, Math.min(perCallCapMs, remainingBudgetMs - 1_500));
       if (perCallTimeoutMs < 8_000) {
         const err: any = new Error("AI generation took too long. Try fewer cards or retry.");
