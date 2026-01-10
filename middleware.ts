@@ -9,6 +9,7 @@ const isPublicRoute = createRouteMatcher([
   "/sign-up(.*)",
   "/api/transcribe(.*)",
   "/api/youtube/transcript(.*)",
+  "/api/youtube-transcript(.*)",
 ]);
 
 export default clerkMiddleware(async (auth, request) => {
@@ -33,6 +34,7 @@ export default clerkMiddleware(async (auth, request) => {
     testKey &&
     (path.startsWith("/api/flashcards") ||
       path.startsWith("/api/blob-upload-url") ||
+      path.startsWith("/api/youtube-transcript") ||
       path.startsWith("/api/youtube/runpod-transcribe")) &&
     request.headers.get("x-flashcards-test-key") === testKey
   ) {
