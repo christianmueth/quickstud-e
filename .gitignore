@@ -1,5 +1,6 @@
 # Local/debug artifacts
 tmp/
+LightZero_MachineLearning_experiments/
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
 # dependencies
