@@ -6,7 +6,7 @@ import NavBar from "@/components/NavBar"; // <-- make sure this path exists
 
 export const metadata = {
   title: "QuickStud-E",
-  description: "Paste slides → get flashcards",
+  description: "Replay-governed adaptive tutoring with student-state memory, tutoring hints, and shadow-scored personalization.",
   icons: {
     icon: "/logo.ico",
     shortcut: "/logo.ico",   // used by Chromium / pinned tabs

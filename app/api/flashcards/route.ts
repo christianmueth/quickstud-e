@@ -8,6 +8,10 @@ import { transcribeAudioUrlWithRunpod } from "@/lib/asrClient";
 import { transcribeYoutubeUrlWithRunpod } from "@/lib/runpodYoutubeClient";
 import { transcribeYoutubeViaAsrWorker } from "@/lib/youtubeAsrWorkerClient";
 import { fetchSupadataTranscript, hasSupadataConfigured } from "@/lib/supadata";
+import { parseYouTube } from "@/lib/youtube";
+import { createReasoningEngine } from "@/lib/reasoningEngine/engine";
+import { persistFlashcardReasoningRun } from "@/lib/reasoningEngine/persistence";
+import { getStudentKnowledgeState } from "@/lib/reasoningEngine/studentState";
 
 export const runtime = "nodejs";         // node runtime to allow larger bodies locally
 export const dynamic = "force-dynamic";
@@ -17,17 +21,27 @@ const MODEL = "gpt-4o-mini";
 const MAX_SOURCE_CHARS = 20_000;
 const MAX_LLM_SOURCE_CHARS = Number(process.env.MAX_LLM_SOURCE_CHARS || 8000);
 const DEFAULT_CARD_COUNT = 20;
+const MIN_CARD_COUNT = 10;
 const STRICT_VIDEO = process.env.STRICT_VIDEO === "1";
 // Cost guardrails
 const DISABLE_AUDIO_UPLOAD = process.env.DISABLE_AUDIO_UPLOAD === "1";
 // Option 1: Disable "paste YouTube URL" ingestion by default for reliability.
 // Set DISABLE_YOUTUBE_URLS=0 to re-enable.
 const DISABLE_YOUTUBE_URLS = process.env.DISABLE_YOUTUBE_URLS !== "0";
-const OPENAI_MAX_OUTPUT_TOKENS = Number(process.env.OPENAI_MAX_OUTPUT_TOKENS || 1200);
+// Legacy YouTube scraping/download fallbacks are unreliable on Vercel and can cause long timeouts.
+// Only enable explicitly.
+const YOUTUBE_ALLOW_LEGACY_FALLBACKS = process.env.YOUTUBE_ALLOW_LEGACY_FALLBACKS === "1";
+// Default higher than 1200: structured JSON for 20+ cards can otherwise truncate mid-object,
+// producing invalid JSON and failing parsing.
+const OPENAI_MAX_OUTPUT_TOKENS = Number(process.env.OPENAI_MAX_OUTPUT_TOKENS || 2600);
 const MAX_DECKS_PER_DAY = Number(process.env.MAX_DECKS_PER_DAY || 50);
 
 const MAX_Q_CHARS = Number(process.env.FLASHCARDS_MAX_Q_CHARS || 140);
 const MAX_A_CHARS = Number(process.env.FLASHCARDS_MAX_A_CHARS || 220);
+const reasoningEngine = createReasoningEngine({
+  beamWidth: Number(process.env.REASONING_ENGINE_BEAM_WIDTH || 3),
+  maxAttempts: Number(process.env.REASONING_ENGINE_MAX_ATTEMPTS || 3),
+});
 
 function cleanText(s: string) { return s.replace(/\s+/g, " ").trim(); }
 function truncate(s: string, max = MAX_SOURCE_CHARS) { return s.length > max ? s.slice(0, max) : s; }
@@ -55,6 +69,30 @@ function shrinkSourceForLLM(text: string, maxChars: number): string {
 
   return t.slice(0, maxChars);
 }
+
+function formatTranscriptAsSlides(transcript: string, opts?: { maxTotalChars?: number; slides?: number; maxCharsPerSlide?: number }): string {
+  const raw = String(transcript || "").trim();
+  if (!raw) return "";
+
+  const maxTotalChars = Math.max(1000, Math.floor(opts?.maxTotalChars ?? MAX_SOURCE_CHARS));
+  const maxCharsPerSlide = Math.max(200, Math.floor(opts?.maxCharsPerSlide ?? 700));
+  const desiredSlides = Math.max(8, Math.min(40, Math.floor(opts?.slides ?? (raw.length > maxTotalChars ? 40 : Math.ceil(raw.length / 1200)))));
+
+  const parts: string[] = [];
+  const L = raw.length;
+  for (let i = 0; i < desiredSlides; i++) {
+    const start = Math.floor((i * L) / desiredSlides);
+    const end = Math.floor(((i + 1) * L) / desiredSlides);
+    const segment = cleanText(raw.slice(start, end));
+    if (!segment) continue;
+    const clipped = segment.length > maxCharsPerSlide ? `${segment.slice(0, maxCharsPerSlide)}…` : segment;
+    parts.push(`[Slide ${parts.length + 1}] ${clipped}`);
+    if (parts.join("\n").length >= maxTotalChars) break;
+  }
+
+  const out = parts.join("\n").trim();
+  return out.length > maxTotalChars ? out.slice(0, maxTotalChars) : out;
+}
 function isYouTubeHostname(host: string) { return ["www.youtube.com", "youtube.com", "youtu.be", "m.youtube.com"].includes(host); }
 function getYouTubeId(u: URL) {
   if (u.hostname.includes("youtu.be")) return u.pathname.slice(1);
@@ -70,6 +108,81 @@ function guessKindFromNameType(name?: string, type?: string): "pdf" | "pptx" | "
   return "unknown";
 }
 const stripFence = (s: string) => s.replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/\s*```$/i, "").trim();
+
+// Repair a common model failure: emitting literal newlines inside JSON strings.
+// JSON does not allow raw \n/\r characters inside quoted strings; they must be escaped.
+function repairJsonNewlinesInStrings(s: string): string {
+  const input = String(s || "");
+  let out = "";
+  let inString = false;
+  let escaped = false;
+
+  for (let i = 0; i < input.length; i++) {
+    const ch = input[i];
+
+    if (inString) {
+      if (escaped) {
+        out += ch;
+        escaped = false;
+        continue;
+      }
+
+      if (ch === "\\") {
+        out += ch;
+        escaped = true;
+        continue;
+      }
+
+      if (ch === '"') {
+        out += ch;
+        inString = false;
+        continue;
+      }
+
+      if (ch === "\n") {
+        out += "\\n";
+        continue;
+      }
+      if (ch === "\r") {
+        // Drop CR; if this is a CRLF pair, the LF will become \n.
+        continue;
+      }
+
+      // JSON forbids unescaped control characters (U+0000..U+001F) inside strings.
+      // Also escape common Unicode line separators that can break parsers.
+      const code = ch.charCodeAt(0);
+      if (ch === "\t") {
+        out += "\\t";
+        continue;
+      }
+      if (ch === "\u2028") {
+        out += "\\u2028";
+        continue;
+      }
+      if (ch === "\u2029") {
+        out += "\\u2029";
+        continue;
+      }
+      if (code >= 0 && code < 0x20) {
+        out += `\\u${code.toString(16).padStart(4, "0")}`;
+        continue;
+      }
+
+      out += ch;
+      continue;
+    }
+
+    if (ch === '"') {
+      out += ch;
+      inString = true;
+      continue;
+    }
+
+    out += ch;
+  }
+
+  return out;
+}
 
 function extractFirstJsonArray(s: string): string | null {
   const start = s.indexOf("[");
@@ -107,6 +220,107 @@ function extractFirstJsonArray(s: string): string | null {
       depth--;
       if (depth === 0) return s.slice(start, i + 1);
     }
+  }
+
+  return null;
+}
+
+function extractFirstJsonObject(s: string): string | null {
+  const start = s.indexOf("{");
+  if (start === -1) return null;
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let i = start; i < s.length; i++) {
+    const ch = s[i];
+
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (ch === "\\") {
+        escaped = true;
+        continue;
+      }
+      if (ch === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (ch === '"') {
+      inString = true;
+      continue;
+    }
+
+    if (ch === "{") depth++;
+    if (ch === "}") {
+      depth--;
+      if (depth === 0) return s.slice(start, i + 1);
+    }
+  }
+
+  return null;
+}
+
+// Similar to extractFirstJsonArray, but tolerant of truncated output.
+// If we can find at least one complete top-level object within the first array,
+// return a valid JSON array containing only the completed elements.
+function extractFirstJsonArrayPrefix(s: string): string | null {
+  const start = s.indexOf("[");
+  if (start === -1) return null;
+
+  let inString = false;
+  let escaped = false;
+  let arrayDepth = 0;
+  let objectDepth = 0;
+  let lastCompleteElementEnd = -1;
+
+  for (let i = start; i < s.length; i++) {
+    const ch = s[i];
+
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (ch === "\\") {
+        escaped = true;
+        continue;
+      }
+      if (ch === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (ch === '"') {
+      inString = true;
+      continue;
+    }
+
+    if (ch === "[") arrayDepth++;
+    if (ch === "]") {
+      arrayDepth--;
+      if (arrayDepth === 0) return s.slice(start, i + 1);
+      continue;
+    }
+
+    if (ch === "{") objectDepth++;
+    if (ch === "}") {
+      objectDepth--;
+      // Completed a top-level element inside the first array.
+      if (arrayDepth === 1 && objectDepth === 0) {
+        lastCompleteElementEnd = i;
+      }
+    }
+  }
+
+  if (lastCompleteElementEnd !== -1) {
+    return `${s.slice(start, lastCompleteElementEnd + 1)}]`;
   }
 
   return null;
@@ -781,7 +995,7 @@ async function transcribeBuffer(buf: Buffer, filename: string, contentType: stri
 
 // -------------------- cards --------------------
 function buildFlashcardPrompt(text: string, count: number) {
-  const n = Math.min(Math.max(count, 5), 50);
+  const n = Math.min(Math.max(count, MIN_CARD_COUNT), 50);
   return `Generate EXACTLY ${n} flashcards from the material.
 
 ABSOLUTE OUTPUT FORMAT (must be valid JSON):
@@ -809,7 +1023,7 @@ function buildFlashcardPromptGuided(text: string, count: number) {
 
 ABSOLUTE OUTPUT FORMAT (must be valid JSON matching the schema):
 - Output MUST be a JSON object with a top-level key "cards".
-- "cards" MUST be a JSON array of EXACTLY ${n} items.
+- "cards" MUST be a JSON array with EXACTLY ${n} items.
 - No preface, no explanation, no markdown, no code fences.
 
 Object shape:
@@ -863,7 +1077,11 @@ Rules:
 Material:
 ${text}`;
 }
-async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUNT) {
+async function generateCardsWithOpenAI(
+  source: string,
+  count = DEFAULT_CARD_COUNT,
+  opts?: { preferQa?: boolean }
+) {
   if (!process.env.RUNPOD_API_KEY) {
     console.warn("[Cards] RunPod API key not configured, using fallback");
     return null;
@@ -879,7 +1097,7 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
     {
       role: "system" as const,
       content:
-        `You generate flashcards. You MUST output ONLY valid JSON. Do not include any analysis, reasoning, markdown, or extra text. Each item must have non-empty q and a. q must end with '?'. q must be <= ${MAX_Q_CHARS} characters. a must directly answer q in 1–2 concise sentences and must be <= ${MAX_A_CHARS} characters. If you cannot comply, output [].`,
+        `You generate flashcards. You MUST output ONLY valid JSON. Do not include any analysis, reasoning, markdown, or extra text. Each item must have non-empty q and a. q must end with '?'. q must be <= ${MAX_Q_CHARS} characters. a must directly answer q in 1–2 concise sentences and must be <= ${MAX_A_CHARS} characters. If you cannot comply, output [].`
     },
     { role: "user" as const, content: buildFlashcardPrompt(llmSource, count) },
   ];
@@ -901,7 +1119,10 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
           properties: {
             cards: {
               type: "array",
-              minItems: n,
+              // Requiring *exactly* n items can push the model to generate more output
+              // than the deployment's max output tokens, leading to truncated/invalid JSON.
+              // We'll accept fewer items and loop to fill the remainder.
+              minItems: Math.min(3, n),
               maxItems: n,
               items: {
                 type: "object",
@@ -919,10 +1140,13 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
 
   const modelName = process.env.RUNPOD_MODEL || "deepseek-r1";
   // For transcripts (esp. YouTube), JSON output often breaks due to unescaped quotes.
-  // DeepSeek-R1 tends to follow a simple Q/A format more reliably.
-  // Allow disabling via FLASHCARDS_QA_MODE=0.
+  // Q/A mode tends to be faster and more parseable for transcript-like sources.
+  // Allow disabling globally via FLASHCARDS_QA_MODE=0, but still allow a caller hint.
   const enableQaMode = process.env.FLASHCARDS_QA_MODE !== "0";
-  const preferQaForModel = enableQaMode && !useGuidedJson && (/deepseek.*r1/i.test(modelName) || /\br1\b/i.test(modelName));
+  // IMPORTANT: do not automatically choose Q/A mode based on model name.
+  // Some reasoning-style models frequently output preface/prose in Q/A mode, which causes hard failures.
+  // Use Q/A only when explicitly requested by the caller.
+  const preferQaForModel = enableQaMode && opts?.preferQa === true;
   const n = Math.min(Math.max(count, 5), 50);
 
   function ensureQuestionMark(q: string) {
@@ -936,8 +1160,19 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
     try {
       JSON.parse(jsonText);
     } catch {
-      const extracted = extractFirstJsonArray(jsonText);
-      if (extracted) jsonText = extracted;
+      const repaired = repairJsonNewlinesInStrings(jsonText);
+      try {
+        JSON.parse(repaired);
+        jsonText = repaired;
+      } catch {
+        const extractedObj = extractFirstJsonObject(repaired);
+        if (extractedObj) {
+          jsonText = extractedObj;
+        } else {
+          const extractedArr = extractFirstJsonArray(repaired) || extractFirstJsonArrayPrefix(repaired);
+          if (extractedArr) jsonText = extractedArr;
+        }
+      }
     }
 
     let arr: Array<{
@@ -976,6 +1211,13 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
       .map((c) => ({ question: c.question.slice(0, MAX_Q_CHARS), answer: c.answer.slice(0, MAX_A_CHARS) }));
 
     return mapped.length ? mapped : null;
+  }
+
+  async function parseCardsFromAny(text: string) {
+    const cleaned = stripFence(String(text || ""));
+    const qa = parseCardsFromQA(cleaned);
+    if (qa && qa.length) return qa;
+    return await parseCardsFromJsonLike(cleaned);
   }
 
   function parseCardsFromQA(text: string) {
@@ -1073,10 +1315,19 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
       { role: "assistant" as const, content: "Q:" },
     ];
 
-    const qaResult = await callLLMResult(qaMessages, OPENAI_MAX_OUTPUT_TOKENS, 0, {
+    // Keep tokens proportional to requested cards to reduce latency.
+    const TOKENS_PER_CARD_QA = 80;
+    const TOKENS_OVERHEAD_QA = 200;
+    const qaMaxTokens = Math.max(
+      400,
+      Math.min(OPENAI_MAX_OUTPUT_TOKENS, TOKENS_PER_CARD_QA * Math.max(1, remaining) + TOKENS_OVERHEAD_QA)
+    );
+
+    const qaResult = await callLLMResult(qaMessages, qaMaxTokens, 0, {
       topP: 1,
       stop: ["</final>"],
-      timeoutMs: Number(process.env.FLASHCARDS_PRIMARY_TIMEOUT_MS || 75_000),
+      disableOpenAICompat: true,
+      timeoutMs: Number(process.env.FLASHCARDS_PRIMARY_TIMEOUT_MS || 295_000),
     });
 
     return qaResult;
@@ -1087,32 +1338,66 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
   if (preferQaForModel) {
     console.log(`[Cards] Using Q/A primary mode for model=${modelName}`);
 
-    const qa1 = await runQaPass(n, []);
-    if (!qa1.ok) {
-      if (qa1.reason === "TIMEOUT" && String(qa1.lastStatus || "").toUpperCase() === "IN_QUEUE") {
-        const err: any = new Error("RunPod job is still in queue (no capacity). Try again in a minute.");
-        err.code = "RUNPOD_IN_QUEUE";
-        err.jobId = qa1.jobId;
-        err.lastStatus = qa1.lastStatus;
-        throw err;
+    // If OPENAI_MAX_OUTPUT_TOKENS is low (commonly 800), asking for 10 cards in one Q/A call
+    // often truncates mid-output and yields 0–2 parseable cards. Batch Q/A to reliably reach 10.
+    const TOKENS_PER_CARD_QA = 80;
+    const TOKENS_OVERHEAD_QA = 200;
+    const maxCardsByQaTokenCap = Math.max(
+      1,
+      Math.floor(Math.max(300, OPENAI_MAX_OUTPUT_TOKENS - TOKENS_OVERHEAD_QA) / TOKENS_PER_CARD_QA)
+    );
+
+    const cards: Array<{ question: string; answer: string }> = [];
+    let qaNoProgress = 0;
+
+    while (cards.length < n) {
+      const remaining = n - cards.length;
+      const m = Math.max(1, Math.min(remaining, maxCardsByQaTokenCap));
+      const qa = await runQaPass(m, cards);
+      if (!qa.ok) {
+        if (qa.reason === "TIMEOUT" && String(qa.lastStatus || "").toUpperCase() === "IN_QUEUE") {
+          const err: any = new Error("RunPod job is still in queue (no capacity). Try again in a minute.");
+          err.code = "RUNPOD_IN_QUEUE";
+          err.jobId = qa.jobId;
+          err.lastStatus = qa.lastStatus;
+          throw err;
+        }
+        console.warn("[Cards] Q/A primary call failed; falling back to JSON attempts");
+        break;
       }
-      console.warn("[Cards] Q/A primary call failed; falling back to JSON attempts");
-    } else {
-      const parsed1 = qa1.content ? parseCardsFromQA(qa1.content) : null;
-      const cards: Array<{ question: string; answer: string }> = parsed1 ? [...parsed1] : [];
-      console.log(`[Cards] Q/A primary returned ${qa1.content?.length || 0} chars, parsed ${cards.length}/${n}`);
+
+      const parsed = qa.content ? await parseCardsFromAny(qa.content) : null;
+      const parsedCards = parsed ? [...parsed] : [];
+      console.log(`[Cards] Q/A batch returned ${qa.content?.length || 0} chars, parsed ${parsedCards.length}/${m}`);
 
       const unique = new Map<string, { question: string; answer: string }>();
       for (const c of cards) unique.set(c.question.toLowerCase(), c);
-      const deduped = Array.from(unique.values());
-
-      // If we got a reasonable number of cards, use them and proceed.
-      if (deduped.length >= Math.min(n, 10)) {
-        return deduped.slice(0, n);
+      let added = 0;
+      for (const c of parsedCards) {
+        const key = c.question.toLowerCase();
+        if (unique.has(key)) continue;
+        unique.set(key, c);
+        added++;
+        if (unique.size >= n) break;
       }
+      cards.splice(0, cards.length, ...Array.from(unique.values()));
 
-      console.warn(`[Cards] Q/A output too small (${deduped.length}/${n}); falling back to JSON modes`);
+      if (added === 0) {
+        qaNoProgress++;
+        if (qaNoProgress >= 2) {
+          console.warn("[Cards] Q/A batching produced no new cards; falling back to JSON attempts");
+          break;
+        }
+      } else {
+        qaNoProgress = 0;
+      }
     }
+
+    if (cards.length >= Math.min(n, 10)) {
+      return cards.slice(0, n);
+    }
+
+    // Otherwise, continue into JSON-guided fallback paths.
   }
 
   // Guided JSON path: generate in batches and enforce timeouts to avoid platform runtime timeouts.
@@ -1122,19 +1407,50 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
     const wallClockBudgetMs =
       Number.isFinite(envBudgetMs) && envBudgetMs > 0
         ? Math.floor(envBudgetMs)
-        // Default to 240s; this route sets maxDuration=300.
-        : 240_000;
+        // Default under maxDuration=300, but high enough to tolerate queueing.
+        : 295_000;
 
-    // If FLASHCARDS_BATCH_SIZE is not set, default to a single call for typical counts (e.g. 20)
-    // to avoid paying prompt overhead multiple times.
+    const TOKENS_PER_CARD = 100;
+    const TOKENS_OVERHEAD = 300;
+    const maxCardsByTokenCap = Math.max(3, Math.floor((OPENAI_MAX_OUTPUT_TOKENS - TOKENS_OVERHEAD) / TOKENS_PER_CARD));
+
+    // For typical deck sizes, prefer a single structured call *when the output token cap allows it*.
+    // If OPENAI_MAX_OUTPUT_TOKENS is low (e.g. 800), requesting 20 cards in one go will truncate and break JSON.
+    // For larger decks (>25), fall back to batching.
     const envBatchSizeRaw = process.env.FLASHCARDS_BATCH_SIZE;
-    const batchSize = Math.max(
+    const configuredBatchSize = Number(envBatchSizeRaw || "");
+    const configuredOrDefault = Math.max(
       3,
-      Math.min(25, Number(envBatchSizeRaw ? envBatchSizeRaw : String(n)) || n)
+      Math.min(25, Number.isFinite(configuredBatchSize) && configuredBatchSize > 0 ? configuredBatchSize : 25)
     );
+    const preferredBatchSize = n <= 25 ? n : configuredOrDefault;
+    const batchSize = Math.min(preferredBatchSize, maxCardsByTokenCap);
+    const baseBatchSize = batchSize;
+    let currentBatchSize = batchSize;
     const cards: Array<{ question: string; answer: string }> = [];
+    let noProgressStreak = 0;
+    const minReturnCount = Math.min(n, MIN_CARD_COUNT);
+
+    // Transcript-like sources can cause the model to repeat itself when prompted with the same
+    // material. Rotate excerpts to encourage novelty (helps YouTube transcripts).
+    const splitIntoSegments = (text: string, segments: number) => {
+      const t = String(text || "");
+      if (segments <= 1 || t.length < 400) return [t];
+      const out: string[] = [];
+      const step = Math.max(1, Math.floor(t.length / segments));
+      for (let i = 0; i < segments; i++) {
+        const start = i * step;
+        const end = i === segments - 1 ? t.length : Math.min(t.length, (i + 1) * step);
+        const seg = t.slice(start, end).trim();
+        if (seg) out.push(seg);
+      }
+      return out.length ? out : [t];
+    };
+    const llmSegments = splitIntoSegments(llmSource, 3);
+    let attempt = 0;
 
     while (cards.length < n) {
+      attempt++;
       if (Date.now() - startedAt > wallClockBudgetMs) {
         const err: any = new Error("AI generation took too long. Try fewer cards or retry.");
         err.code = "RUNPOD_TIMEOUT";
@@ -1142,7 +1458,7 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
       }
 
       const remaining = n - cards.length;
-      const m = Math.min(batchSize, remaining);
+      const m = Math.min(currentBatchSize, remaining);
 
       const remainingBudgetMs = wallClockBudgetMs - (Date.now() - startedAt);
       // Ensure we never start a call that cannot complete before our own budget expires.
@@ -1152,7 +1468,7 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
         Number.isFinite(envPerCallCapMs) && envPerCallCapMs > 0
           ? Math.floor(envPerCallCapMs)
           // Default higher than 50s to tolerate RunPod queueing.
-          : 170_000;
+          : 295_000;
       const perCallTimeoutMs = Math.max(8_000, Math.min(perCallCapMs, remainingBudgetMs - 1_500));
       if (perCallTimeoutMs < 8_000) {
         const err: any = new Error("AI generation took too long. Try fewer cards or retry.");
@@ -1166,6 +1482,12 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
             .join("\n")}`
         : "";
 
+      const segment = llmSegments.length ? llmSegments[(attempt + noProgressStreak) % llmSegments.length] : llmSource;
+      const focusHint =
+        llmSegments.length > 1
+          ? `\n\nImportant: Use ONLY the following excerpt as the material for this batch (do not rely on earlier context).`
+          : "";
+
       const batchMessages = [
         {
           role: "system" as const,
@@ -1174,17 +1496,20 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
         },
         {
           role: "user" as const,
-          content: `${buildFlashcardPromptGuided(llmSource, m)}${avoid}`,
+          content: `${buildFlashcardPromptGuided(segment, m)}${avoid}${focusHint}`,
         },
       ];
 
       // Keep tokens proportional to requested cards to reduce latency.
-      // Short answers: 20 cards should typically fit in ~800–1200 tokens.
-      const maxTokens = Math.min(OPENAI_MAX_OUTPUT_TOKENS, 45 * m + 120);
+      // In practice, 20 structured cards often need ~1600–2400 output tokens once JSON overhead is included.
+      // If this is too low, the model truncates mid-string and we get invalid JSON.
+      const maxTokens = Math.min(OPENAI_MAX_OUTPUT_TOKENS, TOKENS_PER_CARD * m + TOKENS_OVERHEAD);
 
       const result = await callLLMResult(batchMessages as any, maxTokens, 0, {
         topP: 1,
         guidedJson: makeGuidedJson(m),
+        // NOTE: do NOT disable OpenAI-compat here.
+        // Structured output (`response_format: json_schema`) is the main reason this path is reliable.
         timeoutMs: perCallTimeoutMs,
       });
 
@@ -1220,20 +1545,161 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
           console.warn("[Cards] Guided JSON parse failed; recovered cards via Q/A parsing");
           for (const c of parsedQa) cards.push(c);
         } else {
+          // Last-resort: request Q/A blocks for this batch and parse those.
+          // This costs an extra LLM call but prevents hard failures when the model emits nearly-correct JSON
+          // (e.g. raw newlines inside strings) that can't be repaired reliably.
+          try {
+            const qaFallback = await runQaPass(m, cards);
+            if (qaFallback.ok && qaFallback.content) {
+              const parsedQaFallback = parseCardsFromQA(qaFallback.content) || [];
+              if (parsedQaFallback.length) {
+                console.warn("[Cards] Guided JSON parse failed; recovered cards via Q/A fallback call");
+                const seen = new Set(cards.map((c) => c.question.toLowerCase()));
+                for (const c of parsedQaFallback) {
+                  const key = c.question.toLowerCase();
+                  if (seen.has(key)) continue;
+                  seen.add(key);
+                  cards.push(c);
+                  if (cards.length >= n) break;
+                }
+                continue;
+              }
+            }
+          } catch (e) {
+            console.warn("[Cards] Q/A fallback call failed:", (e as any)?.message || e);
+          }
+
+          // If we still can't recover, try a strict "formatter" pass to convert whatever we got into JSON.
+          // Reasoning models often follow formatting instructions better than generation instructions.
+          try {
+            const repairMessages = [
+              {
+                role: "system" as const,
+                content:
+                  "You are a strict JSON formatter. Output ONLY valid JSON. No prose, no markdown, no code fences. The output must be a JSON array of objects with keys q and a.",
+              },
+              {
+                role: "user" as const,
+                content:
+                  `Convert the following into a JSON array of up to ${m} flashcards with keys q and a. Output JSON only.\n\nCONTENT:\n${cleaned}`,
+              },
+            ];
+
+            const repaired = await callLLMResult(repairMessages, Math.min(OPENAI_MAX_OUTPUT_TOKENS, 900), 0, {
+              topP: 1,
+              guidedJson: undefined,
+              disableOpenAICompat: true,
+              timeoutMs: Number(process.env.FLASHCARDS_REPAIR_TIMEOUT_MS || 90_000),
+            });
+
+            if (repaired.ok && repaired.content) {
+              const repairedClean = stripFence(repaired.content);
+              const repairedParsed = await parseCardsFromJsonLike(repairedClean);
+              if (repairedParsed && repairedParsed.length) {
+                console.warn("[Cards] Guided JSON parse failed; recovered cards via repair pass", {
+                  recovered: repairedParsed.length,
+                  jobId: repaired.jobId || null,
+                });
+                for (const c of repairedParsed) cards.push(c);
+                continue;
+              }
+            }
+          } catch (e) {
+            console.warn("[Cards] Repair pass failed:", (e as any)?.message || e);
+          }
+
           const preview = String(cleaned || "").slice(0, 220);
+          const tail = String(cleaned || "").slice(-220);
+          const outputLength = String(cleaned || "").length;
           console.warn("[Cards] Guided JSON parse failed; cannot recover cards", {
             preview,
+            tail,
+            outputLength,
             jobId: result.jobId || null,
           });
+
+          // If we already have enough cards, return a partial deck rather than hard-failing.
+          // This avoids turning a mostly-successful run into a 502.
+          if (cards.length >= minReturnCount) {
+            console.warn(`[Cards] Returning partial deck due to unrecoverable batch output (${cards.length}/${n})`);
+            break;
+          }
+
           const err: any = new Error("RunPod returned an invalid format (expected JSON flashcards)");
           err.code = "RUNPOD_BAD_OUTPUT";
           err.preview = preview;
+          err.tail = tail;
+          err.outputLength = outputLength;
+          err.raw = String(cleaned || "").slice(0, 12_000);
           err.jobId = result.jobId || null;
           throw err;
         }
       } else {
-        for (const c of parsed) cards.push(c);
+        const seen = new Set(cards.map((c) => c.question.toLowerCase()));
+        const newlyAdded: Array<{ question: string; answer: string }> = [];
+        for (const c of parsed) {
+          const key = c.question.toLowerCase();
+          if (seen.has(key)) continue;
+          seen.add(key);
+          newlyAdded.push(c);
+        }
+        if (newlyAdded.length === 0) {
+          noProgressStreak++;
+          console.warn(`[Cards] Structured parse produced no new unique cards (streak=${noProgressStreak})`);
+          // Try reducing the requested batch size to encourage novelty.
+          currentBatchSize = Math.max(1, Math.floor(currentBatchSize / 2));
+          // If the model is stuck repeating itself, try a Q/A pass to fill the remaining slots.
+          // Only allow returning a partial deck if we still meet the minimum card count.
+          if (noProgressStreak >= 3) {
+            if (cards.length >= minReturnCount) {
+              console.warn(`[Cards] Returning partial deck due to repetitive output (${cards.length}/${n})`);
+              break;
+            }
+
+            try {
+              const qaFill = await runQaPass(n - cards.length, cards);
+              if (qaFill.ok && qaFill.content) {
+                const parsedQa = (await parseCardsFromAny(qaFill.content)) || [];
+                if (parsedQa.length) {
+                  const seen = new Set(cards.map((c) => c.question.toLowerCase()));
+                  let added = 0;
+                  for (const c of parsedQa) {
+                    const key = c.question.toLowerCase();
+                    if (seen.has(key)) continue;
+                    seen.add(key);
+                    cards.push(c);
+                    added++;
+                    if (cards.length >= n) break;
+                  }
+                  if (added > 0) {
+                    console.warn(`[Cards] Q/A fill recovered ${added} cards (${cards.length}/${n})`);
+                    noProgressStreak = 0;
+                    currentBatchSize = baseBatchSize;
+                  }
+                }
+              }
+            } catch (e) {
+              console.warn("[Cards] Q/A fill attempt failed:", (e as any)?.message || e);
+            }
+          }
+          if (noProgressStreak >= 4) {
+            const err: any = new Error("AI returned repetitive output and could not finish the requested deck.");
+            err.code = "RUNPOD_BAD_OUTPUT";
+            err.preview = String(cleaned || "").slice(0, 220);
+            err.tail = String(cleaned || "").slice(-220);
+            err.outputLength = String(cleaned || "").length;
+            err.raw = String(cleaned || "").slice(0, 12_000);
+            err.jobId = result.jobId || null;
+            throw err;
+          }
+        } else {
+          noProgressStreak = 0;
+          currentBatchSize = baseBatchSize;
+          for (const c of newlyAdded) cards.push(c);
+        }
       }
+
+      console.log(`[Cards] Progress: ${cards.length}/${n} (batchSize=${baseBatchSize}, currentBatchSize=${currentBatchSize}, tokenCap=${OPENAI_MAX_OUTPUT_TOKENS})`);
 
       const unique = new Map<string, { question: string; answer: string }>();
       for (const c of cards) unique.set(c.question.toLowerCase(), c);
@@ -1245,10 +1711,18 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
 
   // Non-guided path: single call + parse/repair.
   // Zero temperature to reduce non-JSON chatter.
-  const result = await callLLMResult(messages, OPENAI_MAX_OUTPUT_TOKENS, 0, {
+  const TOKENS_PER_CARD_NON_GUIDED = 100;
+  const TOKENS_OVERHEAD_NON_GUIDED = 300;
+  const nonGuidedMaxTokens = Math.max(
+    600,
+    Math.min(OPENAI_MAX_OUTPUT_TOKENS, TOKENS_PER_CARD_NON_GUIDED * Math.max(1, n) + TOKENS_OVERHEAD_NON_GUIDED)
+  );
+
+  const result = await callLLMResult(messages, nonGuidedMaxTokens, 0, {
     topP: 1,
     guidedJson: undefined,
-    timeoutMs: Number(process.env.FLASHCARDS_PRIMARY_TIMEOUT_MS || 75_000),
+    disableOpenAICompat: true,
+    timeoutMs: Number(process.env.FLASHCARDS_PRIMARY_TIMEOUT_MS || 295_000),
   });
   if (!result.ok) {
     if (result.reason === "TIMEOUT" && String(result.lastStatus || "").toUpperCase() === "IN_QUEUE") {
@@ -1306,6 +1780,7 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
     const repaired = await callLLMResult(repairMessages, OPENAI_MAX_OUTPUT_TOKENS, 0, {
       topP: 1,
       guidedJson: undefined,
+      disableOpenAICompat: true,
     });
     if (repaired.ok && repaired.content) {
       repairJobId = repaired.jobId || null;
@@ -1331,6 +1806,7 @@ async function generateCardsWithOpenAI(source: string, count = DEFAULT_CARD_COUN
     const qaResult = await callLLMResult(qaMessages, OPENAI_MAX_OUTPUT_TOKENS, 0, {
       topP: 1,
       stop: ["</final>"],
+      disableOpenAICompat: true,
     });
 
     if (qaResult.ok && qaResult.content) {
@@ -1365,13 +1841,40 @@ function fallbackCards(text: string) {
 export async function POST(req: Request) {
   const t0 = Date.now();
   const traceId = req.headers.get("x-quickstud-trace") || (globalThis.crypto as any)?.randomUUID?.() || `${Date.now()}-${Math.random()}`;
+  const timings: Record<string, number> = {};
+
+  const finalizeTimings = () => {
+    timings.total_ms = Math.max(0, Date.now() - t0);
+    return timings;
+  };
+
+  const respondJson = (body: any, init?: { status?: number }) => {
+    return NextResponse.json(
+      {
+        ...body,
+        traceId,
+        timings: finalizeTimings(),
+      },
+      init
+    );
+  };
+
+  const timeIt = async <T,>(label: string, fn: () => Promise<T>): Promise<T> => {
+    const s = Date.now();
+    try {
+      return await fn();
+    } finally {
+      timings[label] = Math.max(0, Date.now() - s);
+    }
+  };
+
   try {
     const testKey = process.env.FLASHCARDS_TEST_KEY;
     const isTestMode = !!testKey && req.headers.get("x-flashcards-test-key") === testKey;
 
     let userId: string | null = null;
     if (!isTestMode) {
-      const authResult = await auth();
+      const authResult = await timeIt("auth_ms", async () => auth());
       userId = authResult.userId;
       if (!userId) return NextResponse.redirect(new URL("/sign-in", req.url));
     }
@@ -1403,18 +1906,20 @@ export async function POST(req: Request) {
       }
     }
 
-    const form = await req.formData();
+    const form = await timeIt("form_data_ms", async () => req.formData());
     
     // Enforce per-user daily deck creation limit (skip in test mode)
     if (!isTestMode) {
       try {
+        const rlStart = Date.now();
         const startOfDay = new Date();
         startOfDay.setHours(0, 0, 0, 0);
         const createdToday = await prisma.deck.count({
           where: { user: { clerkUserId: userId! }, createdAt: { gte: startOfDay } },
         });
+        timings.rate_limit_ms = Math.max(0, Date.now() - rlStart);
         if (createdToday >= MAX_DECKS_PER_DAY) {
-          return NextResponse.json(
+          return respondJson(
             { error: `Daily limit reached. You can create up to ${MAX_DECKS_PER_DAY} decks per day.`, code: "RATE_LIMIT" },
             { status: 429 }
           );
@@ -1722,23 +2227,47 @@ export async function POST(req: Request) {
     // 2) URL: YouTube captions → else scrape website text
     if (!source && urlStr) {
       try {
-        const u = new URL(urlStr);
-        if (isYouTubeHostname(u.hostname)) {
+        const yt = parseYouTube(urlStr);
+        if (yt.ok) {
+          const u = new URL(yt.canonicalUrl);
           // Prefer Supadata for YouTube transcripts (reliable from Vercel).
-          if (hasSupadataConfigured()) {
-            const supa = await fetchSupadataTranscript({ youtubeUrl: u.toString() });
+          if (!hasSupadataConfigured()) {
+            // Without Supadata, YouTube on Vercel is typically unreliable.
+            if (!YOUTUBE_ALLOW_LEGACY_FALLBACKS) {
+              return respondJson(
+                {
+                  error:
+                    "YouTube links require transcripts via Supadata. Set SUPADATA_API_KEY, or upload audio/video (mp3/m4a/mp4) or captions (.srt/.vtt).",
+                  code: "SUPADATA_NOT_CONFIGURED",
+                  url: u.toString(),
+                },
+                { status: 500 }
+              );
+            }
+          } else {
+            const supa = await timeIt("supadata_ms", async () =>
+              fetchSupadataTranscript({ youtubeUrl: yt.canonicalUrl })
+            );
             if (supa.ok) {
-              source = truncate(cleanText(supa.transcript));
+              // Shape long transcripts into slide-like chunks so the LLM input shrinker samples
+              // across the entire video instead of biasing toward the beginning.
+              const slidesBudget = Math.max(8, Math.min(28, Math.floor(MAX_LLM_SOURCE_CHARS / 360)));
+              source = truncate(
+                formatTranscriptAsSlides(supa.transcript, {
+                  maxTotalChars: MAX_LLM_SOURCE_CHARS,
+                  slides: slidesBudget,
+                  maxCharsPerSlide: 320,
+                })
+              );
               origin = "youtube";
             } else {
-              // If YouTube URLs are disabled, fail loudly instead of trying legacy YouTube scraping/download.
-              if (DISABLE_YOUTUBE_URLS) {
-                return NextResponse.json(
+              // Default behavior: fail fast. This avoids timing out on Vercel due to legacy YouTube scraping.
+              if (!YOUTUBE_ALLOW_LEGACY_FALLBACKS) {
+                return respondJson(
                   {
                     error:
-                      "Failed to fetch a YouTube transcript. Please upload the audio/video file (mp3/m4a/mp4) or upload captions (.srt/.vtt).",
+                      "Failed to fetch a YouTube transcript. This video may not have captions/transcript available. Please retry, or upload audio/video (mp3/m4a/mp4) or captions (.srt/.vtt).",
                     code: "SUPADATA_FAILED",
-                    traceId,
                     diag: { provider: "supadata", reason: supa.reason, httpStatus: supa.httpStatus ?? null },
                   },
                   { status: supa.reason === "NOT_CONFIGURED" ? 500 : 502 }
@@ -1747,22 +2276,21 @@ export async function POST(req: Request) {
             }
           }
 
-          // If Supadata isn't configured (or didn't produce a transcript) and YouTube URLs are disabled, stop here.
+          // If YouTube URLs are globally disabled, stop here.
           if (!source && DISABLE_YOUTUBE_URLS) {
-            return NextResponse.json(
+            return respondJson(
               {
                 error:
-                  "YouTube links require transcripts via Supadata. Please upload the audio/video file (mp3/m4a/mp4) or upload captions (.srt/.vtt).",
+                  "YouTube links are disabled on this deployment. Please upload audio/video (mp3/m4a/mp4) or captions (.srt/.vtt).",
                 code: "YT_URL_DISABLED",
-                traceId,
                 url: u.toString(),
               },
               { status: 400 }
             );
           }
 
-          // Legacy fallbacks are only reachable when DISABLE_YOUTUBE_URLS=0.
-          if (!source) {
+          // Legacy fallbacks are only reachable when explicitly enabled.
+          if (!source && YOUTUBE_ALLOW_LEGACY_FALLBACKS) {
             const ytDiag: any = {
             videoId: getYouTubeId(u),
             captions: { attempted: false, ok: false, error: null as string | null },
@@ -2005,6 +2533,8 @@ export async function POST(req: Request) {
           }
           }
         } else {
+          // Non-YouTube URL
+          const u = new URL(urlStr.includes("://") ? urlStr : `https://${urlStr}`);
           const web = await extractFromWebsite(u);
           if (web?.text) { source = truncate(web.text); origin = "url"; }
         }
@@ -2112,16 +2642,23 @@ export async function POST(req: Request) {
     title = title.slice(0, 120);
 
     // Get card count from form data (default to 20)
-    const cardCount = Number(form.get("cardCount")) || DEFAULT_CARD_COUNT;
+    const requestedCardCountRaw = Number(form.get("cardCount")) || DEFAULT_CARD_COUNT;
+    const cardCount = Math.min(Math.max(requestedCardCountRaw, MIN_CARD_COUNT), 50);
     console.log(`[Cards] Generating ${cardCount} flashcards for deck: ${title}`);
 
-    // Generate cards
-    let aiCards: Awaited<ReturnType<typeof generateCardsWithOpenAI>> = null;
+    // Generate cards through the central reasoning engine.
+    let flashcardResult: Awaited<ReturnType<typeof reasoningEngine.generateFlashcards>> = null;
     try {
-      aiCards = await generateCardsWithOpenAI(source, cardCount);
+      flashcardResult = await timeIt("llm_flashcards_ms", async () =>
+        reasoningEngine.generateFlashcards(
+          { source, count: cardCount, title },
+          async ({ source: candidateSource, count: candidateCount, attempt }) =>
+            generateCardsWithOpenAI(candidateSource, candidateCount, { preferQa: attempt > 1 })
+        )
+      );
     } catch (e: any) {
       if (e?.code === "AI_NO_FLASHCARDS") {
-        return NextResponse.json(
+        return respondJson(
           {
             error:
               "AI did not return parseable flashcards. Please retry. If this persists, the RunPod template/model likely isn't honoring guided JSON.",
@@ -2131,7 +2668,7 @@ export async function POST(req: Request) {
         );
       }
       if (e?.code === "RUNPOD_IN_QUEUE") {
-        return NextResponse.json(
+        return respondJson(
           {
             error: "AI generation is queued on RunPod and did not start within the request time limit. Please retry shortly.",
             code: "RUNPOD_IN_QUEUE",
@@ -2143,7 +2680,7 @@ export async function POST(req: Request) {
       }
 
       if (e?.code === "RUNPOD_TIMEOUT") {
-        return NextResponse.json(
+        return respondJson(
           {
             error:
               "AI generation took too long and timed out. Try fewer cards (e.g. 10) or retry shortly.",
@@ -2154,12 +2691,15 @@ export async function POST(req: Request) {
       }
 
       if (e?.code === "RUNPOD_BAD_OUTPUT") {
-        return NextResponse.json(
+        return respondJson(
           {
             error:
               "AI returned an invalid format (expected JSON flashcards). Please retry, or adjust the RunPod template/model to output strict JSON.",
             code: "RUNPOD_BAD_OUTPUT",
             preview: e?.preview || null,
+            tail: e?.tail || null,
+            outputLength: typeof e?.outputLength === "number" ? e.outputLength : null,
+            raw: isTestMode ? e?.raw || null : null,
             jobId: e?.jobId || null,
             repairJobId: e?.repairJobId || null,
           },
@@ -2168,7 +2708,7 @@ export async function POST(req: Request) {
       }
       throw e;
     }
-    const cards = aiCards ?? (() => {
+    const cards = flashcardResult?.cards ?? (() => {
       const allowFallback = process.env.FLASHCARDS_ALLOW_FALLBACK === "1";
       if (process.env.NODE_ENV === "production" && !allowFallback) {
         // Creating a deck with sentence-chunks looks like a successful run but isn't useful.
@@ -2179,9 +2719,23 @@ export async function POST(req: Request) {
       return fallbackCards(source).map((c) => ({ question: c.question, answer: c.answer }));
     })();
 
+    // Hard guarantee: never claim success with fewer than the minimum.
+    if (cards.length < MIN_CARD_COUNT) {
+      return respondJson(
+        {
+          error: `AI returned only ${cards.length} cards; expected at least ${MIN_CARD_COUNT}. Please retry.`,
+          code: "AI_INSUFFICIENT_CARDS",
+          cardCountRequested: cardCount,
+          cardCountReturned: cards.length,
+        },
+        { status: 502 }
+      );
+    }
+
     // Test mode: don't touch the DB, just return the cards.
     if (isTestMode) {
-      return NextResponse.json(
+      const llmSource = shrinkSourceForLLM(source, MAX_LLM_SOURCE_CHARS);
+      return respondJson(
         {
           ok: true,
           mode: "test",
@@ -2189,6 +2743,14 @@ export async function POST(req: Request) {
           origin,
           cardCountRequested: cardCount,
           cardCountReturned: cards.length,
+          reasoning: flashcardResult?.response ?? null,
+          reasoningMetadata: flashcardResult?.metadata ?? null,
+          debug: {
+            sourceLength: source.length,
+            sourcePreview: source.slice(0, 240),
+            llmSourceLength: llmSource.length,
+            llmSourcePreview: llmSource.slice(0, 240),
+          },
           cards,
         },
         { status: 200 }
@@ -2196,25 +2758,51 @@ export async function POST(req: Request) {
     }
 
     // Ensure user
-    const userRow = await prisma.user.upsert({
-      where: { clerkUserId }, update: {}, create: { clerkUserId: clerkUserId! },
-    });
+    const userRow = await timeIt("db_user_upsert_ms", async () =>
+      prisma.user.upsert({
+        where: { clerkUserId }, update: {}, create: { clerkUserId: clerkUserId! },
+      })
+    );
 
     // Create deck
     let deckId: string;
     try {
-      const deck = await prisma.deck.create({
-        data: { title, userId: userRow.id, /* @ts-ignore */ source: truncate(source) },
-        select: { id: true },
-      });
+      const deck = await timeIt("db_deck_create_ms", async () =>
+        prisma.deck.create({
+          data: { title, userId: userRow.id, /* @ts-ignore */ source: truncate(source) },
+          select: { id: true },
+        })
+      );
       deckId = deck.id;
     } catch {
-      const deck = await prisma.deck.create({ data: { title, userId: userRow.id }, select: { id: true } });
+      const deck = await timeIt("db_deck_create_ms", async () =>
+        prisma.deck.create({ data: { title, userId: userRow.id }, select: { id: true } })
+      );
       deckId = deck.id;
     }
 
     if (cards.length) {
-      await prisma.card.createMany({ data: cards.map((c) => ({ deckId, question: c.question, answer: c.answer })) });
+      await timeIt("db_cards_create_ms", async () =>
+        prisma.card.createMany({ data: cards.map((c) => ({ deckId, question: c.question, answer: c.answer })) })
+      );
+    }
+
+    if (flashcardResult) {
+      const studentState = await timeIt("db_student_state_read_ms", async () => getStudentKnowledgeState(userRow.id));
+      await timeIt("db_reasoning_run_create_ms", async () =>
+        persistFlashcardReasoningRun({
+          userId: userRow.id,
+          deckId,
+          title,
+          origin,
+          source,
+          result: flashcardResult,
+          metadata: {
+            misconceptionSignals: studentState?.priorMistakes || [],
+            weakTopicMatches: studentState?.weakTopics || [],
+          },
+        })
+      );
     }
 
     const redirectUrl = new URL(`/app/deck/${deckId}`, req.url);
@@ -2222,8 +2810,8 @@ export async function POST(req: Request) {
     return NextResponse.redirect(redirectUrl, { status: 303 });
   } catch (e: any) {
     console.error("[Flashcards] Unhandled error", { traceId, message: e?.message, code: e?.code });
-    return NextResponse.json(
-      { error: e?.message || "Failed to generate", code: e?.code || "SERVER_FAIL", traceId },
+    return respondJson(
+      { error: e?.message || "Failed to generate", code: e?.code || "SERVER_FAIL" },
       { status: 500 }
     );
   }

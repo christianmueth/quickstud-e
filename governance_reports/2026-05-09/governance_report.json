@@ -1,0 +1,301 @@
+{
+  "generatedAt": "2026-05-10T00:06:11.293Z",
+  "reportDate": "2026-05-09",
+  "reportStatus": "ok",
+  "deploymentPosture": "shadow-only",
+  "policy": {
+    "policyVersion": null,
+    "selectedPolicyLabel": null,
+    "scorerKind": null,
+    "blendWeight": null,
+    "abstainThreshold": null
+  },
+  "shadow": {
+    "totalExamples": 0,
+    "disagreementRate": 0,
+    "abstentionRate": 0,
+    "overrideRate": 0,
+    "abstentionShareOfDisagreements": 0,
+    "scoreMargin": {
+      "count": 0,
+      "min": 0,
+      "max": 0,
+      "mean": 0,
+      "p25": 0,
+      "p50": 0,
+      "p75": 0
+    },
+    "topShiftShare": 0,
+    "topStrategyShifts": [],
+    "misconceptionSkew": {
+      "uniqueCount": 0,
+      "top1Share": 0,
+      "top3Share": 0,
+      "entries": []
+    },
+    "strategySkew": {
+      "uniqueCount": 0,
+      "top1Share": 0,
+      "top3Share": 0,
+      "entries": []
+    },
+    "dataWarnings": [
+      "Shadow sample is small (0 examples); disagreement geometry may still be unstable.",
+      "Abstention share is low at 0; calibration drift may be present.",
+      "Candidate-score margin is compressed (mean 0); real candidate separability may be weak."
+    ]
+  },
+  "recovery": {
+    "totalExamples": 5,
+    "recoveredCount": 3,
+    "stabilizedCount": 2,
+    "averageReward": 0.657,
+    "averageConfidenceDelta": 0.177,
+    "classBalance": {
+      "recoveredCount": 3,
+      "stabilizedCount": 2,
+      "unrecoveredCount": 2,
+      "recoveryRate": 0.6,
+      "stabilizationRate": 0.4
+    },
+    "rewardDistribution": {
+      "count": 5,
+      "min": -1.228,
+      "max": 2.194,
+      "mean": 0.657,
+      "stddev": 1.533,
+      "p10": -1.189,
+      "p25": -1.13,
+      "p50": 1.301,
+      "p75": 2.15,
+      "p90": 2.176,
+      "histogram": [
+        {
+          "start": -1.228,
+          "end": -0.8,
+          "count": 2
+        },
+        {
+          "start": -0.8,
+          "end": -0.373,
+          "count": 0
+        },
+        {
+          "start": -0.373,
+          "end": 0.055,
+          "count": 0
+        },
+        {
+          "start": 0.055,
+          "end": 0.483,
+          "count": 0
+        },
+        {
+          "start": 0.483,
+          "end": 0.911,
+          "count": 0
+        },
+        {
+          "start": 0.911,
+          "end": 1.338,
+          "count": 1
+        },
+        {
+          "start": 1.338,
+          "end": 1.766,
+          "count": 0
+        },
+        {
+          "start": 1.766,
+          "end": 2.194,
+          "count": 2
+        }
+      ]
+    },
+    "confidenceDeltaDistribution": {
+      "count": 5,
+      "min": -0.128,
+      "max": 0.444,
+      "mean": 0.177,
+      "stddev": 0.227,
+      "p10": -0.089,
+      "p25": -0.03,
+      "p50": 0.201,
+      "p75": 0.4,
+      "p90": 0.426,
+      "histogram": [
+        {
+          "start": -0.128,
+          "end": -0.056,
+          "count": 1
+        },
+        {
+          "start": -0.056,
+          "end": 0.015,
+          "count": 1
+        },
+        {
+          "start": 0.015,
+          "end": 0.087,
+          "count": 0
+        },
+        {
+          "start": 0.087,
+          "end": 0.158,
+          "count": 0
+        },
+        {
+          "start": 0.158,
+          "end": 0.23,
+          "count": 1
+        },
+        {
+          "start": 0.23,
+          "end": 0.301,
+          "count": 0
+        },
+        {
+          "start": 0.301,
+          "end": 0.373,
+          "count": 0
+        },
+        {
+          "start": 0.373,
+          "end": 0.444,
+          "count": 2
+        }
+      ]
+    },
+    "misconceptionSkew": {
+      "uniqueCount": 4,
+      "top1Share": 0.4,
+      "top3Share": 1,
+      "entries": [
+        {
+          "label": "ARITHMETIC_ERROR",
+          "count": 2,
+          "share": 0.4
+        },
+        {
+          "label": "FALSE_ASSUMPTION",
+          "count": 2,
+          "share": 0.4
+        },
+        {
+          "label": "CONCEPTUAL_CONFUSION",
+          "count": 1,
+          "share": 0.2
+        },
+        {
+          "label": "OVERGENERALIZATION",
+          "count": 1,
+          "share": 0.2
+        }
+      ]
+    },
+    "strategyImbalance": {
+      "uniqueCount": 4,
+      "top1Share": 0.4,
+      "top3Share": 0.8,
+      "entries": [
+        {
+          "label": "targeted_hint",
+          "count": 2,
+          "share": 0.4
+        },
+        {
+          "label": "concept_reframe",
+          "count": 1,
+          "share": 0.2
+        },
+        {
+          "label": "error_localization",
+          "count": 1,
+          "share": 0.2
+        },
+        {
+          "label": "worked_example",
+          "count": 1,
+          "share": 0.2
+        }
+      ]
+    },
+    "dataWarnings": [
+      "Dataset is small (5 examples); baseline results may be unstable."
+    ],
+    "byMisconception": [
+      {
+        "category": "ARITHMETIC_ERROR",
+        "examples": 2,
+        "recoveryRate": 0.5,
+        "stabilizationRate": 0.5,
+        "averageReward": 0.532,
+        "averageConfidenceDelta": 0.207
+      },
+      {
+        "category": "FALSE_ASSUMPTION",
+        "examples": 2,
+        "recoveryRate": 0.5,
+        "stabilizationRate": 0.5,
+        "averageReward": 0.51,
+        "averageConfidenceDelta": 0.185
+      },
+      {
+        "category": "CONCEPTUAL_CONFUSION",
+        "examples": 1,
+        "recoveryRate": 0,
+        "stabilizationRate": 0,
+        "averageReward": -1.228,
+        "averageConfidenceDelta": -0.128
+      },
+      {
+        "category": "OVERGENERALIZATION",
+        "examples": 1,
+        "recoveryRate": 1,
+        "stabilizationRate": 0,
+        "averageReward": 1.301,
+        "averageConfidenceDelta": 0.201
+      }
+    ],
+    "byStrategy": [
+      {
+        "strategy": "targeted_hint",
+        "examples": 2,
+        "recoveryRate": 0.5,
+        "averageReward": 0.086
+      },
+      {
+        "strategy": "concept_reframe",
+        "examples": 1,
+        "recoveryRate": 0,
+        "averageReward": -1.228
+      },
+      {
+        "strategy": "error_localization",
+        "examples": 1,
+        "recoveryRate": 1,
+        "averageReward": 2.194
+      },
+      {
+        "strategy": "worked_example",
+        "examples": 1,
+        "recoveryRate": 1,
+        "averageReward": 2.15
+      }
+    ]
+  },
+  "recommendedPosture": "hold_shadow_mode",
+  "blockedReasons": [],
+  "evidenceFiles": {
+    "shadowDataset": "governance_reports/2026-05-09/shadow_dataset.jsonl",
+    "shadowSummary": "governance_reports/2026-05-09/shadow_summary.json",
+    "recoveryDataset": "governance_reports/2026-05-09/recovery_dataset.jsonl",
+    "recoverySummary": "governance_reports/2026-05-09/recovery_summary.json",
+    "governanceReport": "governance_reports/2026-05-09/governance_report.json",
+    "reportStatus": "governance_reports/2026-05-09/report_status.json",
+    "disagreementClusters": "governance_reports/2026-05-09/disagreement_clusters.json",
+    "recoveryPatterns": "governance_reports/2026-05-09/recovery_patterns.json",
+    "replayDigest": "governance_reports/2026-05-09/replay_digest.md",
+    "rolloutDecision": "governance_reports/2026-05-09/rollout_decision.md"
+  }
+}

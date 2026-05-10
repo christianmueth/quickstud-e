@@ -1,0 +1,75 @@
+{
+  "reportDate": "2026-05-09",
+  "classBalance": {
+    "recoveredCount": 3,
+    "stabilizedCount": 2,
+    "unrecoveredCount": 2,
+    "recoveryRate": 0.6,
+    "stabilizationRate": 0.4
+  },
+  "averageReward": 0.657,
+  "averageConfidenceDelta": 0.177,
+  "misconceptionBuckets": [
+    {
+      "category": "ARITHMETIC_ERROR",
+      "examples": 2,
+      "recoveryRate": 0.5,
+      "stabilizationRate": 0.5,
+      "averageReward": 0.532,
+      "averageConfidenceDelta": 0.207
+    },
+    {
+      "category": "FALSE_ASSUMPTION",
+      "examples": 2,
+      "recoveryRate": 0.5,
+      "stabilizationRate": 0.5,
+      "averageReward": 0.51,
+      "averageConfidenceDelta": 0.185
+    },
+    {
+      "category": "CONCEPTUAL_CONFUSION",
+      "examples": 1,
+      "recoveryRate": 0,
+      "stabilizationRate": 0,
+      "averageReward": -1.228,
+      "averageConfidenceDelta": -0.128
+    },
+    {
+      "category": "OVERGENERALIZATION",
+      "examples": 1,
+      "recoveryRate": 1,
+      "stabilizationRate": 0,
+      "averageReward": 1.301,
+      "averageConfidenceDelta": 0.201
+    }
+  ],
+  "strategyBuckets": [
+    {
+      "strategy": "targeted_hint",
+      "examples": 2,
+      "recoveryRate": 0.5,
+      "averageReward": 0.086
+    },
+    {
+      "strategy": "concept_reframe",
+      "examples": 1,
+      "recoveryRate": 0,
+      "averageReward": -1.228
+    },
+    {
+      "strategy": "error_localization",
+      "examples": 1,
+      "recoveryRate": 1,
+      "averageReward": 2.194
+    },
+    {
+      "strategy": "worked_example",
+      "examples": 1,
+      "recoveryRate": 1,
+      "averageReward": 2.15
+    }
+  ],
+  "warnings": [
+    "Dataset is small (5 examples); baseline results may be unstable."
+  ]
+}

@@ -12,11 +12,21 @@ import DeckCardList from "@/components/DeckCardList";
 
 export const dynamic = "force-dynamic";
 
-export default async function DeckPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function DeckPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ concept?: string; reason?: string; source?: string }>;
+}) {
   const { userId } = await auth();
   if (!userId) return notFound();
 
   const { id } = await params; // Next 15: await params
+  const resolvedSearchParams = await searchParams;
+  const focusConcept = cleanQueryValue(resolvedSearchParams.concept);
+  const focusReason = cleanQueryValue(resolvedSearchParams.reason);
+  const recommendationSource = cleanQueryValue(resolvedSearchParams.source);
 
   const deck = await prisma.deck.findFirst({
     where: { id, user: { clerkUserId: userId } },
@@ -37,7 +47,12 @@ export default async function DeckPage({ params }: { params: Promise<{ id: strin
 
       <section className="space-y-3">
         <h2 className="text-lg font-semibold">Study</h2>
-        <StudyCarousel deckId={deck.id} />
+        <StudyCarousel
+          deckId={deck.id}
+          focusConcept={focusConcept}
+          focusReason={focusReason}
+          recommendationSource={recommendationSource}
+        />
       </section>
 
       <section className="space-y-3">
@@ -47,4 +62,9 @@ export default async function DeckPage({ params }: { params: Promise<{ id: strin
       </section>
     </div>
   );
+}
+
+function cleanQueryValue(value: string | undefined): string | null {
+  const trimmed = String(value || "").trim();
+  return trimmed || null;
 }

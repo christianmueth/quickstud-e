@@ -13,6 +13,17 @@ Notes:
 import process from "node:process";
 import fs from "node:fs";
 import path from "node:path";
+import { performance } from "node:perf_hooks";
+import { Agent, setGlobalDispatcher, fetch as undiciFetch, FormData } from "undici";
+
+// RunPod calls (queueing + generation) can exceed Node/Undici's default header timeout.
+// Increase timeouts for this *test script* so we can observe end-to-end behavior.
+setGlobalDispatcher(
+  new Agent({
+    headersTimeout: Number(process.env.FLASHCARDS_SMOKETEST_HEADERS_TIMEOUT_MS || 420_000),
+    bodyTimeout: Number(process.env.FLASHCARDS_SMOKETEST_BODY_TIMEOUT_MS || 420_000),
+  })
+);
 
 function loadDotenvLike(filePath) {
   if (!fs.existsSync(filePath)) return;
@@ -33,7 +44,7 @@ function loadDotenvLike(filePath) {
 }
 
 function parseArgs(argv) {
-  const out = { baseUrl: "http://localhost:3000", title: "smoketest", cardCount: 20, text: null, url: null };
+  const out = { baseUrl: "http://localhost:3000", title: "smoketest", cardCount: 20, text: null, url: null, file: null };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--base" && argv[i + 1]) out.baseUrl = argv[++i];
@@ -41,6 +52,7 @@ function parseArgs(argv) {
     else if (a === "--cards" && argv[i + 1]) out.cardCount = Number(argv[++i]) || 20;
     else if (a === "--text" && argv[i + 1]) out.text = argv[++i];
     else if (a === "--url" && argv[i + 1]) out.url = argv[++i];
+    else if (a === "--file" && argv[i + 1]) out.file = argv[++i];
     else if (a === "--help" || a === "-h") return { help: true };
   }
   return out;
@@ -58,6 +70,7 @@ if (args.help) {
       "  --cards <n>                    Card count (default: 20)",
       "  --text  <string>               Source text",
       "  --url   <string>               URL to ingest (website or YouTube)",
+      "  --file  <path>                 Upload a local PDF/PPTX file",
       "",
       "Example:",
       "  set FLASHCARDS_TEST_KEY=localtest",
@@ -78,26 +91,61 @@ if (!testKey) {
   process.exit(1);
 }
 
-if (!args.text && !args.url) {
-  console.error("Provide either --text or --url");
+if (!args.text && !args.url && !args.file) {
+  console.error("Provide either --text, --url, or --file");
   process.exit(1);
 }
 
 const endpoint = `${args.baseUrl.replace(/\/$/, "")}/api/flashcards`;
 
-const form = new FormData();
-form.set("title", String(args.title || "smoketest"));
-form.set("cardCount", String(args.cardCount || 20));
-if (args.text) form.set("source", String(args.text));
-if (args.url) form.set("url", String(args.url));
+let resp;
+const t0 = performance.now();
+if (args.file) {
+  const filePath = path.resolve(process.cwd(), String(args.file));
+  if (!fs.existsSync(filePath)) {
+    console.error(`File not found: ${filePath}`);
+    process.exit(1);
+  }
+  const fileName = path.basename(filePath);
+  const lower = fileName.toLowerCase();
+  const contentType =
+    lower.endsWith(".pptx")
+      ? "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+      : lower.endsWith(".pdf")
+        ? "application/pdf"
+        : "application/octet-stream";
 
-const resp = await fetch(endpoint, {
-  method: "POST",
-  headers: {
-    "x-flashcards-test-key": testKey,
-  },
-  body: form,
-});
+  const buf = fs.readFileSync(filePath);
+  const fd = new FormData();
+  fd.set("title", String(args.title || "smoketest"));
+  fd.set("cardCount", String(args.cardCount || 20));
+  fd.append("file", new Blob([buf], { type: contentType }), fileName);
+
+  resp = await undiciFetch(endpoint, {
+    method: "POST",
+    headers: {
+      "x-flashcards-test-key": testKey,
+      // Do NOT set Content-Type; fetch will set multipart boundary.
+    },
+    body: fd,
+  });
+} else {
+  const form = new URLSearchParams();
+  form.set("title", String(args.title || "smoketest"));
+  form.set("cardCount", String(args.cardCount || 20));
+  if (args.text) form.set("source", String(args.text));
+  if (args.url) form.set("url", String(args.url));
+
+  resp = await undiciFetch(endpoint, {
+    method: "POST",
+    headers: {
+      "x-flashcards-test-key": testKey,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: form,
+  });
+}
+const t1 = performance.now();
 
 const text = await resp.text();
 let json = null;
@@ -109,11 +157,13 @@ try {
 
 if (!resp.ok) {
   console.error(`HTTP ${resp.status}`);
+  console.error(`Timing: ${(t1 - t0).toFixed(0)}ms`);
   console.error(json ?? text);
   process.exit(2);
 }
 
 console.log(`HTTP ${resp.status}`);
+console.log(`Timing: ${(t1 - t0).toFixed(0)}ms`);
 if (!json) {
   console.log(text);
   process.exit(0);
@@ -121,6 +171,13 @@ if (!json) {
 
 if (json.ok && Array.isArray(json.cards)) {
   console.log(`Returned ${json.cards.length} cards (origin=${json.origin})`);
+  if (json.debug) {
+    console.log("Debug:");
+    if (typeof json.debug.sourceLength === "number") console.log("- sourceLength:", json.debug.sourceLength);
+    if (typeof json.debug.llmSourceLength === "number") console.log("- llmSourceLength:", json.debug.llmSourceLength);
+    if (typeof json.debug.sourcePreview === "string") console.log("- sourcePreview:", json.debug.sourcePreview);
+    if (typeof json.debug.llmSourcePreview === "string") console.log("- llmSourcePreview:", json.debug.llmSourcePreview);
+  }
   console.log("First 3 cards:");
   for (const c of json.cards.slice(0, 3)) {
     console.log("- Q:", c.question);

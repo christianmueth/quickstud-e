@@ -156,6 +156,7 @@ export type CallLLMOptions = {
   responseFormat?: unknown;
   extraBody?: Record<string, unknown>;
   timeoutMs?: number;
+  disableOpenAICompat?: boolean;
 };
 
 let cachedOpenAICompatModelId: string | null = null;
@@ -240,16 +241,23 @@ export async function callLLMResult(
   // For async /run endpoints, prefer the native /run + /status polling path to avoid
   // gateway/proxy timeouts on platforms like Vercel.
   const forceOpenAICompat = process.env.RUNPOD_OPENAI_COMPAT_FORCE === "1";
-  // For async /run endpoints, prefer native /run + /status polling.
-  // OpenAI-compat is a long-lived synchronous HTTP request and can time out on Vercel.
-  // Only use it for async endpoints when explicitly forced.
-  const allowOpenAICompatForAsyncStructured = isAsyncRun && wantsStructuredOutput && forceOpenAICompat;
+  // For async /run endpoints, OpenAI-compat is the only mode that reliably supports
+  // structured output (`response_format: json_schema`) for some templates.
+  // Allow disabling it (e.g. for platforms with strict outbound request timeouts).
+  const allowOpenAICompatForAsyncStructured =
+    isAsyncRun &&
+    wantsStructuredOutput &&
+    (forceOpenAICompat || process.env.RUNPOD_OPENAI_COMPAT_STRUCTURED !== "0");
 
-  const useOpenAICompat =
+  let useOpenAICompat =
     forceOpenAICompat ||
     allowOpenAICompatForAsyncStructured ||
     (!isAsyncRun &&
       (process.env.RUNPOD_OPENAI_COMPAT === "1" || process.env.RUNPOD_GUIDED_JSON === "1" || wantsStructuredOutput));
+
+  if (options?.disableOpenAICompat) {
+    useOpenAICompat = false;
+  }
 
   console.log(
     `[aiClient] Transport decision: isAsyncRun=${isAsyncRun} wantsStructured=${wantsStructuredOutput} ` +
@@ -265,6 +273,8 @@ export async function callLLMResult(
     typeof options?.timeoutMs === "number" && Number.isFinite(options.timeoutMs)
       ? Math.max(1_000, Math.min(300_000, Math.floor(options.timeoutMs)))
       : Math.max(1_000, Math.min(300_000, Math.floor(defaultOpenAICompatTimeoutMs)));
+
+  const defaultRunpodRunPostTimeoutMs = Math.max(1_000, Number(process.env.RUNPOD_RUN_POST_TIMEOUT_MS || 30_000));
 
   try {
     console.log(
@@ -456,6 +466,20 @@ export async function callLLMResult(
       }
     }
 
+    // Some templates ignore `guided_json` but support OpenAI-style structured output controls.
+    // If the caller provided guidedJson and did not provide an explicit responseFormat, derive one.
+    if (options?.guidedJson != null && options?.responseFormat == null) {
+      const derivedResponseFormat = {
+        type: "json_schema",
+        json_schema: {
+          name: "flashcards",
+          schema: options.guidedJson,
+        },
+      };
+      input.response_format = derivedResponseFormat;
+      if (extraBody.response_format == null) extraBody.response_format = derivedResponseFormat;
+    }
+
     if (options?.responseFormat != null) {
       input.response_format = options.responseFormat;
       if (extraBody.response_format == null) extraBody.response_format = options.responseFormat;
@@ -468,14 +492,24 @@ export async function callLLMResult(
     const body = JSON.stringify({ input });
 
     const doPost = async (authorizationValue: string) =>
-      fetch(endpoint, {
-        method: "POST",
-        headers: {
-          Authorization: authorizationValue,
-          "Content-Type": "application/json",
+      fetchWithTimeout(
+        endpoint,
+        {
+          method: "POST",
+          headers: {
+            Authorization: authorizationValue,
+            "Content-Type": "application/json",
+          },
+          body,
         },
-        body,
-      });
+        // /run should respond quickly (job id); don't let submission hang indefinitely.
+        Math.min(
+          300_000,
+          typeof options?.timeoutMs === "number" && Number.isFinite(options.timeoutMs)
+            ? Math.max(1_000, Math.floor(options.timeoutMs))
+            : defaultRunpodRunPostTimeoutMs
+        )
+      );
 
     // RunPod generally expects Bearer auth, but some users paste tokens in different formats.
     // If we get a 401, retry once with the alternate format to rule out header formatting.
@@ -516,14 +550,16 @@ export async function callLLMResult(
 
       const statusUrl = buildRunpodStatusUrl(endpoint, String(jobId));
       const startedAt = Date.now();
-      const defaultAsyncTimeoutMs = Math.max(15_000, Number(process.env.RUNPOD_ASYNC_TIMEOUT_MS || 120_000));
+      // Default close to (but under) typical serverless max duration.
+      const defaultAsyncTimeoutMs = Math.max(15_000, Number(process.env.RUNPOD_ASYNC_TIMEOUT_MS || 240_000));
       const requestedTimeoutMs =
         typeof options?.timeoutMs === "number" && Number.isFinite(options.timeoutMs)
           ? Math.floor(options.timeoutMs)
           : null;
+      // Respect caller timeouts; cap only to a hard safety limit.
       const timeoutMs = requestedTimeoutMs
-        ? Math.max(15_000, Math.min(defaultAsyncTimeoutMs, requestedTimeoutMs))
-        : defaultAsyncTimeoutMs;
+        ? Math.max(15_000, Math.min(300_000, requestedTimeoutMs))
+        : Math.min(300_000, defaultAsyncTimeoutMs);
       const intervalMs = Math.max(250, Number(process.env.RUNPOD_ASYNC_POLL_INTERVAL_MS || 1500));
       let pollCount = 0;
       let lastStatus = "";

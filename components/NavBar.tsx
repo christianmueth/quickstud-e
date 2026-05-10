@@ -14,9 +14,16 @@ export default function NavBar() {
         </Link>
 
         <div className="flex items-center gap-3">
+          <Link href="/how-adaptive-guidance-works" className="text-sm px-3 py-1.5 rounded border hover:bg-gray-50">
+            How adaptive guidance works
+          </Link>
+
           <SignedIn>
             <Link href="/app" className="text-sm px-3 py-1.5 rounded border hover:bg-gray-50">
               My Decks
+            </Link>
+            <Link href="/app/progress" className="text-sm px-3 py-1.5 rounded border hover:bg-gray-50">
+              Progress
             </Link>
           </SignedIn>
 

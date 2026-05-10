@@ -1,50 +1,118 @@
-datasource db {
-  provider = "postgresql"
-  url      = env("POSTGRES_PRISMA_URL")
-}
-
 generator client {
   provider = "prisma-client-js"
 }
 
-model User {
-  id            String   @id @default(cuid())
-  clerkUserId   String   @unique
-  xp            Int      @default(0)
-  studyStreak   Int      @default(0)
-  lastStudyDate DateTime?
-  xpToday       Int      @default(0)
-  xpTodayDate   DateTime?
-  dailyGoal     Int      @default(50)
-  decks         Deck[]
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
+model User {
+  id            String         @id @default(cuid())
+  clerkUserId   String         @unique
+  dailyGoal     Int            @default(50)
+  lastStudyDate DateTime?
+  studyStreak   Int            @default(0)
+  xp            Int            @default(0)
+  xpToday       Int            @default(0)
+  xpTodayDate   DateTime?
+  decks         Deck[]
+  reasoningRuns ReasoningRun[]
+  studentState  StudentState?
+}
 
 model Deck {
-  id        String   @id @default(cuid())
-  title     String
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  source    String?
-  cards     Card[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id            String         @id @default(cuid())
+  userId        String
+  title         String
+  source        String?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  cards         Card[]
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reasoningRuns ReasoningRun[]
 }
 
 model Card {
-  id        String   @id @default(cuid())
-  deckId    String
-  deck      Deck     @relation(fields: [deckId], references: [id], onDelete: Cascade)
-  question  String
-  answer    String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  // --- SRS fields ---
-  srsDueAt        DateTime @default(now())
-  srsIntervalDays Int      @default(0)
-  srsEase         Float    @default(2.5)
-  srsReps         Int      @default(0)
-  srsLapses       Int      @default(0)
+  id              String    @id @default(cuid())
+  deckId          String
+  question        String
+  answer          String
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
   lastReviewedAt  DateTime?
+  srsDueAt        DateTime  @default(now())
+  srsEase         Float     @default(2.5)
+  srsIntervalDays Int       @default(0)
+  srsLapses       Int       @default(0)
+  srsReps         Int       @default(0)
+  deck            Deck      @relation(fields: [deckId], references: [id], onDelete: Cascade)
+}
+
+model ReasoningRun {
+  id                            String               @id @default(cuid())
+  userId                        String?
+  deckId                        String?
+  mode                          String
+  origin                        String?
+  title                         String?
+  prompt                        String?
+  finalAnswer                   String?
+  reasoning                     String?
+  confidence                    Float?
+  trajectoryScore               Float?
+  searchDepth                   Int                  @default(0)
+  beamWidth                     Int?
+  candidatesGenerated           Int?
+  candidatesSelected            Int?
+  prunedCount                   Int?
+  verificationApplied           Boolean              @default(true)
+  averageCandidateScore         Float?
+  averageVerificationConfidence Float?
+  selectedCandidates            Json?
+  metadata                      Json?
+  createdAt                     DateTime             @default(now())
+  candidates                    ReasoningCandidate[]
+  deck                          Deck?                @relation(fields: [deckId], references: [id], onDelete: Cascade)
+  user                          User?                @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([deckId, createdAt])
+  @@index([mode, createdAt])
+}
+
+model ReasoningCandidate {
+  id                     String       @id @default(cuid())
+  runId                  String
+  rank                   Int
+  question               String
+  answer                 String
+  score                  Float
+  verificationConfidence Float?
+  selected               Boolean      @default(false)
+  pruned                 Boolean      @default(false)
+  trajectoryDepth        Int          @default(0)
+  sourceAttempt          Int?
+  difficulty             String?
+  createdAt              DateTime     @default(now())
+  run                    ReasoningRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([runId, rank])
+  @@index([runId, selected])
+}
+
+model StudentState {
+  id                        String   @id @default(cuid())
+  userId                    String   @unique
+  weakConcepts              Json?
+  misconceptionPatterns     Json?
+  confidenceProfile         Json?
+  retentionProfile          Json?
+  pacingProfile             Json?
+  preferredExplanationStyle String?
+  recentFailures            Json?
+  recentSuccesses           Json?
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
+  user                      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }

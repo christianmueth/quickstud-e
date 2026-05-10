@@ -1,6 +1,43 @@
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
+import { createReasoningResponse } from "@/lib/reasoningEngine/contracts";
+import { persistReasoningResponseRun } from "@/lib/reasoningEngine/persistence";
+
+type CoachingContext = {
+  prompt?: string;
+  studentAnswer?: string;
+  expectedAnswer?: string;
+  misconceptionSignals?: string[];
+  weakTopicMatches?: string[];
+  studentState?: {
+    weakConcepts?: string[];
+    misconceptionPatterns?: string[];
+    confidenceProfile?: Record<string, unknown>;
+    retentionProfile?: Record<string, unknown>;
+    pacingProfile?: Record<string, unknown>;
+    preferredExplanationStyle?: string | null;
+    recentFailures?: string[];
+    recentSuccesses?: string[];
+    updatedAt?: string | null;
+    createdAt?: string | null;
+  } | null;
+  verification?: {
+    confidence?: number;
+    final_answer?: string;
+    reasoning?: string;
+  };
+  selectedStrategy?: {
+    id?: string;
+    label?: string;
+    hint?: string;
+    rationale?: string;
+    score?: number;
+    confidence?: number;
+    strategyType?: string;
+  };
+};
 
 function schedule(ease: number, reps: number, interval: number, rating: "again"|"good"|"easy") {
   let newEase = ease;
@@ -33,14 +70,18 @@ export async function POST(req: Request) {
   const { userId } = await auth();
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const body = (await req.json().catch(() => null)) as { cardId?: string; rating?: "again"|"good"|"easy" } | null;
+  const body = (await req.json().catch(() => null)) as {
+    cardId?: string;
+    rating?: "again"|"good"|"easy";
+    coachingContext?: CoachingContext;
+  } | null;
   if (!body?.cardId || !body?.rating) return NextResponse.json({ error: "Bad request" }, { status: 400 });
 
   // Select only safe fields if SRS cols aren’t present
   const card = await prisma.card.findFirst({
     where: { id: body.cardId, deck: { user: { clerkUserId: userId } } },
     // use `as any` to avoid TS errors pre-migration
-    select: { id: true, deckId: true, srsEase: true, srsReps: true, srsIntervalDays: true } as any,
+    select: { id: true, deckId: true, question: true, answer: true, srsEase: true, srsReps: true, srsIntervalDays: true } as any,
   });
   if (!card) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
@@ -101,5 +142,82 @@ export async function POST(req: Request) {
     // ignore if XP/streak columns aren’t there yet
   }
 
+  try {
+    const coaching = body.coachingContext;
+    if (coaching?.selectedStrategy || coaching?.misconceptionSignals?.length || coaching?.verification) {
+      const user = await prisma.user.findFirst({
+        where: { clerkUserId: userId },
+        select: { id: true },
+      });
+
+      if (user) {
+        const priorConfidence = toFiniteNumber(coaching.verification?.confidence);
+        const recovered = body.rating !== "again";
+        const stabilized = body.rating === "easy" || (body.rating === "good" && priorConfidence >= 0.35);
+        const postReviewConfidence = estimatePostReviewConfidence(body.rating, priorConfidence);
+
+        await persistReasoningResponseRun({
+          userId: user.id,
+          deckId: (card as any).deckId,
+          mode: "study_recovery",
+          origin: "study_carousel",
+          title: "Inline study recovery outcome",
+          prompt: coaching.prompt || (card as any).question,
+          response: createReasoningResponse({
+            final_answer: recovered
+              ? "Student recovered after coaching and continued the card."
+              : "Student remained unstable after coaching and marked the card again.",
+            reasoning: recovered
+              ? `The coached intervention ${coaching.selectedStrategy?.label || "selected strategy"} led to a ${body.rating} outcome.`
+              : `The coached intervention ${coaching.selectedStrategy?.label || "selected strategy"} did not yet stabilize recall; the card was marked again.`,
+            confidence: postReviewConfidence,
+            trajectory_score: stabilized ? 0.82 : recovered ? 0.62 : 0.28,
+            search_depth: 1,
+          }),
+          verificationApplied: true,
+          metadata: {
+            cardId: body.cardId,
+            rating: body.rating,
+            recovered,
+            stabilized,
+            priorConfidence,
+            postReviewConfidence,
+            confidenceDelta: round3(postReviewConfidence - priorConfidence),
+            misconceptionSignals: coaching.misconceptionSignals || [],
+            weakTopicMatches: coaching.weakTopicMatches || [],
+            studentState: coaching.studentState || null,
+            studentAnswer: truncate(coaching.studentAnswer),
+            expectedAnswer: truncate(coaching.expectedAnswer || (card as any).answer),
+            verification: coaching.verification || null,
+            selectedStrategy: coaching.selectedStrategy || null,
+          } as Prisma.InputJsonValue,
+          candidatesSelected: 1,
+        });
+      }
+    }
+  } catch {
+    // recovery persistence is additive and should not block grading
+  }
+
   return NextResponse.json({ ok: true, nextDue });
+}
+
+function estimatePostReviewConfidence(rating: "again"|"good"|"easy", priorConfidence: number): number {
+  if (rating === "again") return round3(Math.max(0.12, priorConfidence * 0.55));
+  if (rating === "easy") return round3(Math.min(0.96, Math.max(priorConfidence + 0.32, 0.82)));
+  return round3(Math.min(0.88, Math.max(priorConfidence + 0.2, 0.64)));
+}
+
+function toFiniteNumber(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function round3(value: number): number {
+  return Math.round(value * 1000) / 1000;
+}
+
+function truncate(value: unknown, max = 400): string {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  return text.length > max ? `${text.slice(0, max)}...` : text;
 }

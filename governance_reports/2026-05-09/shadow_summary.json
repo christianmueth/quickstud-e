@@ -1,0 +1,39 @@
+{
+  "exportedAt": "2026-05-10T00:06:10.788Z",
+  "totalExamples": 0,
+  "disagreementCount": 0,
+  "abstentionCount": 0,
+  "overrideCount": 0,
+  "disagreementRate": 0,
+  "abstentionRate": 0,
+  "overrideRate": 0,
+  "abstentionShareOfDisagreements": 0,
+  "scoreMargin": {
+    "count": 0,
+    "min": 0,
+    "max": 0,
+    "mean": 0,
+    "p25": 0,
+    "p50": 0,
+    "p75": 0
+  },
+  "misconceptionSkew": {
+    "uniqueCount": 0,
+    "top1Share": 0,
+    "top3Share": 0,
+    "entries": []
+  },
+  "strategySkew": {
+    "uniqueCount": 0,
+    "top1Share": 0,
+    "top3Share": 0,
+    "entries": []
+  },
+  "topShiftShare": 0,
+  "topStrategyShifts": [],
+  "dataWarnings": [
+    "Shadow sample is small (0 examples); disagreement geometry may still be unstable.",
+    "Abstention share is low at 0; calibration drift may be present.",
+    "Candidate-score margin is compressed (mean 0); real candidate separability may be weak."
+  ]
+}

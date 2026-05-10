@@ -1,29 +1,79 @@
-// Robust extractor for youtu.be and youtube.com/* variants
-export function extractYouTubeId(url: string): string | null {
-  try {
-    const u = new URL(url);
+export type YouTubeParse =
+  | { ok: true; videoId: string; canonicalUrl: string }
+  | { ok: false; reason: string };
 
-    // Handle youtu.be/<id>
-    if (u.hostname === "youtu.be") {
-      const id = u.pathname.slice(1).trim();
-      return id ? id : null;
-    }
+const YT_ID_RE = /^[a-zA-Z0-9_-]{11}$/;
 
-    // Handle youtube.com/watch?v=<id> (ignore playlist/time/etc.)
-    if (u.hostname.includes("youtube.com")) {
-      const v = u.searchParams.get("v");
-      if (v) return v;
-      // Shorts sometimes appear as /shorts/<id>
-      const m = u.pathname.match(/\/shorts\/([a-zA-Z0-9_-]{6,})/);
-      if (m?.[1]) return m[1];
-    }
+function normalizeHost(hostname: string): string {
+  return String(hostname || "")
+    .replace(/^www\./i, "")
+    .toLowerCase();
+}
 
-    // Fallback: try generic 11-char pattern
-    const m = url.match(/([a-zA-Z0-9_-]{11})/);
-    return m?.[1] ?? null;
-  } catch {
-    return null;
+export function parseYouTube(input: string): YouTubeParse {
+  const raw = String(input || "").trim();
+  if (!raw) return { ok: false, reason: "Empty input" };
+
+  // Allow passing videoId directly
+  if (YT_ID_RE.test(raw)) {
+    return { ok: true, videoId: raw, canonicalUrl: `https://www.youtube.com/watch?v=${raw}` };
   }
+
+  let url: URL;
+  try {
+    // tolerate missing scheme
+    url = new URL(raw.includes("://") ? raw : `https://${raw}`);
+  } catch {
+    return { ok: false, reason: "Not a valid URL or video id" };
+  }
+
+  const host = normalizeHost(url.hostname);
+  const path = url.pathname || "";
+  let id: string | null = null;
+
+  // youtu.be/<id>
+  if (host === "youtu.be") {
+    const maybe = path.split("/").filter(Boolean)[0] || "";
+    if (YT_ID_RE.test(maybe)) id = maybe;
+  }
+
+  // youtube.com/watch?v=<id>
+  if (
+    !id &&
+    (host === "youtube.com" || host === "m.youtube.com" || host === "music.youtube.com")
+  ) {
+    if (path === "/watch") {
+      const v = url.searchParams.get("v") || "";
+      if (YT_ID_RE.test(v)) id = v;
+    }
+
+    // /shorts/<id>
+    if (!id && path.startsWith("/shorts/")) {
+      const maybe = path.split("/")[2] || "";
+      if (YT_ID_RE.test(maybe)) id = maybe;
+    }
+
+    // /embed/<id>
+    if (!id && path.startsWith("/embed/")) {
+      const maybe = path.split("/")[2] || "";
+      if (YT_ID_RE.test(maybe)) id = maybe;
+    }
+  }
+
+  // Fallback: sometimes v exists even on odd hosts/paths
+  if (!id) {
+    const v = url.searchParams.get("v") || "";
+    if (YT_ID_RE.test(v)) id = v;
+  }
+
+  if (!id) return { ok: false, reason: "Could not extract YouTube video id" };
+  return { ok: true, videoId: id, canonicalUrl: `https://www.youtube.com/watch?v=${id}` };
+}
+
+// Back-compat: keep the prior helper, now stricter.
+export function extractYouTubeId(url: string): string | null {
+  const parsed = parseYouTube(url);
+  return parsed.ok ? parsed.videoId : null;
 }
 
 export type OEmbed =
