@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 import { humanizeMisconceptionCategory } from "@/lib/reasoningEngine/contracts";
@@ -148,7 +148,7 @@ export default function StudyCarousel({
     [current, focusConcept, focusReason, recommendationSource, coachResult]
   );
 
-  async function loadQueue() {
+  const loadQueue = useCallback(async () => {
     setLoading(true);
     try {
       const studyUrl = new URL(`/api/deck/${deckId}/study`, window.location.origin);
@@ -167,16 +167,16 @@ export default function StudyCarousel({
 
       if (!qRes.ok) toast.error("We couldn't prepare your guided session right now.");
       if (!meRes.ok) toast.error("We couldn't load today's study progress right now.");
-    } catch (e: any) {
-      toast.error(e?.message || "We couldn't load this guided session right now."); setQueue([]);
+    } catch (error: unknown) {
+      toast.error(getErrorMessage(error, "We couldn't load this guided session right now.")); setQueue([]);
     } finally { setLoading(false); }
-  }
+  }, [deckId, focusConcept]);
 
-  useEffect(() => { loadQueue(); /* eslint-disable-next-line */ }, [deckId, focusConcept]);
+  useEffect(() => { void loadQueue(); }, [loadQueue]);
 
   const current = queue[idx] || null;
   const progress = useMemo(() => (queue.length ? Math.round(((idx + (current ? 0 : 1)) / queue.length) * 100) : 0), [idx, queue.length, current]);
-  function onFlip() { if (current) setShowBack((s) => !s); }
+  const onFlip = useCallback(() => { if (current) setShowBack((s) => !s); }, [current]);
 
   useEffect(() => {
     setAnswerDraft("");
@@ -233,7 +233,7 @@ export default function StudyCarousel({
     showBack,
   ]);
 
-  async function mark(rating: "again" | "good" | "easy") {
+  const mark = useCallback(async (rating: "again" | "good" | "easy") => {
     if (!current) return;
     const gain = rating === "easy" ? 5 : rating === "good" ? 3 : 1;
     const coachingContext = buildCoachingContext(current, answerDraft, coachResult);
@@ -280,8 +280,8 @@ export default function StudyCarousel({
       }
 
       if (next.length === 0) { setSessionComplete(true); toast.success("Guided session complete 🎉"); }
-    } catch (e: any) { toast.error(e?.message || "We couldn't save that study step."); }
-  }
+    } catch (error: unknown) { toast.error(getErrorMessage(error, "We couldn't save that study step.")); }
+  }, [answerDraft, celebrated, coachResult, current, goal, idx, queue, xpToday]);
 
   async function coachCurrentCard() {
     if (!current) return;
@@ -306,7 +306,7 @@ export default function StudyCarousel({
       });
       const data = (await safeJson(res)) as TutoringGuideResponse | null;
       if (!res.ok || !data?.ok) {
-        throw new Error((data as any)?.error || "We couldn't prepare tutor guidance for this step.");
+        throw new Error(readApiError(data, "We couldn't prepare tutor guidance for this step."));
       }
       setCoachResult(data);
 
@@ -342,8 +342,8 @@ export default function StudyCarousel({
       }
 
       if (!showBack) setShowBack(true);
-    } catch (e: any) {
-      toast.error(e?.message || "We couldn't load tutor guidance right now.");
+    } catch (error: unknown) {
+      toast.error(getErrorMessage(error, "We couldn't load tutor guidance right now."));
     } finally {
       setCoachLoading(false);
     }
@@ -361,13 +361,13 @@ export default function StudyCarousel({
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [current, queue.length, xpToday, goal, celebrated]);
+  }, [current, mark, onFlip, queue.length]);
 
   if (loading) return <div className="rounded border p-6 text-sm text-gray-500">Preparing your guided session...</div>;
   if (!queue.length && !sessionComplete)
     return (
       <div className="rounded border p-6 text-sm text-gray-500 flex items-center justify-between">
-        <span>Your tutor doesn't have a guided review pass waiting right now.</span>
+        <span>Your tutor does not have a guided review pass waiting right now.</span>
         <button className="text-sm px-3 py-1.5 rounded border" onClick={loadQueue}>Refresh</button>
       </div>
     );
@@ -381,11 +381,18 @@ export default function StudyCarousel({
           <h2 className="mt-3 text-2xl font-semibold tracking-tight text-slate-950">{reflection.headline}</h2>
           <p className="mt-3 text-sm leading-7 text-slate-700">{reflection.summary}</p>
           <div className="mt-5 grid gap-3 md:grid-cols-3">
-            {reflection.cues.map((cue) => (
-              <div key={cue} className="rounded-2xl border border-emerald-100 bg-white/90 p-4 text-sm leading-6 text-slate-700">
-                {cue}
-              </div>
-            ))}
+            <div className="rounded-2xl border border-emerald-100 bg-white/90 p-4 text-sm leading-6 text-slate-700">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-700">What changed</p>
+              <p className="mt-2">{reflection.whatChanged}</p>
+            </div>
+            <div className="rounded-2xl border border-amber-100 bg-white/90 p-4 text-sm leading-6 text-slate-700">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-amber-700">Still unstable</p>
+              <p className="mt-2">{reflection.stillUnstable}</p>
+            </div>
+            <div className="rounded-2xl border border-sky-100 bg-white/90 p-4 text-sm leading-6 text-slate-700">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-sky-700">Next session</p>
+              <p className="mt-2">{reflection.nextSession}</p>
+            </div>
           </div>
         </div>
 
@@ -414,7 +421,7 @@ export default function StudyCarousel({
         <div className="rounded-2xl border border-sky-200 bg-sky-50 p-4 text-sm text-sky-950">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <p className="font-semibold">Today's focus: {focusConcept || "Targeted review"}</p>
+              <p className="font-semibold">Today&apos;s focus: {focusConcept || "Targeted review"}</p>
               {focusReason ? <p className="mt-1 text-sky-900">Why the tutor picked this: {focusReason}</p> : null}
             </div>
             {recommendationSource ? (
@@ -652,9 +659,11 @@ function buildSessionReflection(events: SessionEvent[], focusConcept?: string | 
   const recoveredCount = events.filter((event) => event.recovered).length;
   const easyCount = events.filter((event) => event.rating === "easy").length;
   const againCount = events.filter((event) => event.rating === "again").length;
+  const goodCount = events.filter((event) => event.rating === "good").length;
   const topMisconception = mostCommonLabel(events.map((event) => event.misconception).filter(Boolean) as string[]);
   const topWeakTopic = mostCommonLabel(events.map((event) => event.weakTopic).filter(Boolean) as string[]);
   const topStrategy = mostCommonLabel(events.map((event) => event.strategyLabel).filter(Boolean) as string[]);
+  const focusLabel = titleFromSignal(topWeakTopic || focusConcept || "");
 
   const headline = easyCount >= Math.max(1, Math.ceil(events.length / 2))
     ? "You ended this session with solid recovery momentum."
@@ -662,29 +671,33 @@ function buildSessionReflection(events: SessionEvent[], focusConcept?: string | 
       ? "You made progress, but one area still wants another pass."
       : "This session exposed a concept that still needs slower reinforcement.";
 
-  const summary = [
-    `You completed ${events.length} card${events.length === 1 ? "" : "s"}`,
-    coachedCount > 0 ? `used coaching on ${coachedCount} step${coachedCount === 1 ? "" : "s"}` : null,
-    recoveredCount > 0 ? `and recovered ${recoveredCount} coached attempt${recoveredCount === 1 ? "" : "s"}` : null,
-  ].filter(Boolean).join(" ") + ".";
+  const summary = recoveredCount > 0
+    ? `The session did more than move cards forward. You hit resistance, adjusted with guidance, and recovered enough momentum to make this topic feel more teachable than it did at the start.`
+    : easyCount > againCount
+      ? `You kept this session steady and moved through the material with more control than hesitation, which usually means the concept is starting to settle instead of feeling newly fragile.`
+      : `This pass surfaced a real friction point, which is still useful. It shows the tutor where to slow down and which explanation path needs to be clearer next time.`;
 
-  const cues = [
-    topMisconception
-      ? `Most common friction point: ${humanizeMisconceptionCategory(topMisconception)}.`
-      : "No single misconception dominated this session.",
-    topStrategy
-      ? `Most-used tutoring move: ${topStrategy.toLowerCase()}.`
-      : "You did not need a repeated tutoring move to finish this session.",
-    topWeakTopic || focusConcept
-      ? `Best next focus: ${titleFromSignal(topWeakTopic || focusConcept || "")}.`
-      : "Best next focus: revisit the first card that still felt slow or uncertain.",
-  ];
+  const whatChanged = recoveredCount > 0
+    ? `${coachedCount === recoveredCount ? "Guidance" : "A few targeted hints"} helped convert hesitation into progress${focusLabel ? ` around ${focusLabel}` : ""}, so this concept is less stuck than it looked at the start of the session.`
+    : easyCount > goodCount
+      ? `${focusLabel ? `${focusLabel} felt` : "The material felt"} more stable once you got rolling, and the stronger finishes suggest recall is becoming easier to sustain across consecutive prompts.`
+      : `You clarified what kind of support you need${topStrategy ? `, and ${topStrategy.toLowerCase()} gave the clearest traction when the concept started to wobble` : " by seeing exactly where the explanation started to break down"}.`;
+
+  const stillUnstable = topMisconception
+    ? `${humanizeMisconceptionCategory(topMisconception)} still shows up when the question gets less automatic${focusLabel ? `, especially inside ${focusLabel}` : ""}, so that is the place to keep slower, more deliberate reinforcement.`
+    : againCount > 0
+      ? `${focusLabel || "The shakier cards"} still needs another pass before the tutor should treat it as stable. Right now the pattern looks more like partial recall than durable understanding.`
+      : `Nothing fully collapsed this session, but the tutor should still treat ${focusLabel || "this topic"} as recently improved rather than permanently stable.`;
+
+  const nextSession = focusLabel
+    ? `Come back to ${focusLabel} first, then use coaching early if the explanation starts to slow down again instead of waiting until the end of the pass.`
+    : `Start the next pass with the first card that felt slow today, and ask for a short hint as soon as your explanation stops feeling clean.`;
 
   const nextStep = againCount > 0
-    ? `Start one more short pass${topWeakTopic || focusConcept ? ` centered on ${titleFromSignal(topWeakTopic || focusConcept || "")}` : ""} and ask for coaching earlier on the first unstable card.`
-    : `Take the momentum forward with a short follow-up review${topWeakTopic || focusConcept ? ` on ${titleFromSignal(topWeakTopic || focusConcept || "")}` : ""} before switching topics.`;
+    ? `Start one more short pass${focusLabel ? ` centered on ${focusLabel}` : ""} and ask for coaching earlier on the first unstable card.`
+    : `Take the momentum forward with a short follow-up review${focusLabel ? ` on ${focusLabel}` : ""} before switching topics.`;
 
-  return { headline, summary, cues, nextStep };
+  return { headline, summary, whatChanged, stillUnstable, nextSession, nextStep };
 }
 
 function mostCommonLabel(labels: string[]) {
@@ -719,4 +732,14 @@ function trimQuestion(value: string, limit: number) {
 function formatScore(value: number | undefined | null) {
   const num = typeof value === "number" && Number.isFinite(value) ? value : 0;
   return num.toFixed(3);
+}
+
+function getErrorMessage(error: unknown, fallback: string) {
+  return error instanceof Error && error.message ? error.message : fallback;
+}
+
+function readApiError(value: unknown, fallback: string) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return fallback;
+  const error = (value as { error?: unknown }).error;
+  return typeof error === "string" && error.trim().length > 0 ? error : fallback;
 }
