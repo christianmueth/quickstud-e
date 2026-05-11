@@ -96,7 +96,7 @@ export default async function ProgressPage() {
         studentState: true,
       },
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     const message = String(error?.message || "");
     studentStateUnavailable = /StudentState|relation .* does not exist|table .* does not exist/i.test(message);
     if (!studentStateUnavailable) {
@@ -165,7 +165,7 @@ export default async function ProgressPage() {
         },
       },
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     const message = String(error?.message || "");
     reasoningRunsUnavailable = /ReasoningRun|relation .* does not exist|table .* does not exist/i.test(message);
     if (!reasoningRunsUnavailable) {
@@ -212,16 +212,16 @@ export default async function ProgressPage() {
   const recoveryTimeline = buildRecoveryTimeline(recentRuns);
   const recoverySummary = summarizeRecoveryTimeline(recoveryTimeline);
   const tutorBrief = buildTutorBrief(studentState, analytics, recoverySummary);
-  const guidedSessionPlan = buildGuidedSessionPlan(studentState, recommendedTopics);
+  const progressNarrative = buildProgressNarrative(studentState, analytics, recoverySummary, recommendedTopics);
 
   return (
     <main className="mx-auto max-w-6xl space-y-8 px-6 py-8">
       <section className="flex flex-col gap-4 rounded-3xl border border-gray-200 bg-gradient-to-r from-sky-50 via-white to-emerald-50 p-8 lg:flex-row lg:items-end lg:justify-between">
         <div className="max-w-3xl space-y-3">
           <p className="text-sm font-medium uppercase tracking-[0.18em] text-sky-700">Tutor progress read</p>
-          <h1 className="text-3xl font-semibold tracking-tight text-gray-950 sm:text-4xl">What your tutor wants to reinforce next</h1>
+          <h1 className="text-3xl font-semibold tracking-tight text-gray-950 sm:text-4xl">How your tutor reads your learning arc right now</h1>
           <p className="text-base leading-7 text-gray-600">
-            This view turns your recent study into a calm next-step read: where confidence is holding, where recovery is starting, and which concept is most worth another guided pass.
+            This space should feel like your tutor interpreting the last few study sessions, not a dashboard reporting numbers. The goal is to show what is settling, what still needs reinforcement, and where the next guided pass should begin.
           </p>
         </div>
         <div className="flex flex-wrap gap-3">
@@ -256,19 +256,23 @@ export default async function ProgressPage() {
         </div>
 
         <div className="rounded-3xl border border-emerald-200 bg-gradient-to-br from-emerald-50 via-white to-lime-50 p-6 shadow-sm">
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">Today's guided session</p>
-          <h2 className="mt-3 text-2xl font-semibold tracking-tight text-gray-950">{guidedSessionPlan.title}</h2>
-          <p className="mt-3 text-sm leading-7 text-gray-700">{guidedSessionPlan.description}</p>
-          <ol className="mt-5 space-y-3">
-            {guidedSessionPlan.steps.map((step, index) => (
-              <li key={step} className="flex items-start gap-3 rounded-2xl border border-emerald-100 bg-white/90 p-3 text-sm leading-6 text-gray-700">
-                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-600 text-xs font-semibold text-white">
-                  {index + 1}
-                </span>
-                <span>{step}</span>
-              </li>
-            ))}
-          </ol>
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">Learning narrative</p>
+          <h2 className="mt-3 text-2xl font-semibold tracking-tight text-gray-950">{progressNarrative.headline}</h2>
+          <p className="mt-3 text-sm leading-7 text-gray-700">{progressNarrative.summary}</p>
+          <div className="mt-5 space-y-3">
+            <div className="rounded-2xl border border-emerald-100 bg-white/90 p-4 text-sm leading-6 text-gray-700">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-700">What changed</p>
+              <p className="mt-2">{progressNarrative.whatChanged}</p>
+            </div>
+            <div className="rounded-2xl border border-amber-100 bg-white/90 p-4 text-sm leading-6 text-gray-700">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-amber-700">Still unstable</p>
+              <p className="mt-2">{progressNarrative.stillUnstable}</p>
+            </div>
+            <div className="rounded-2xl border border-sky-100 bg-white/90 p-4 text-sm leading-6 text-gray-700">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-sky-700">What should happen next</p>
+              <p className="mt-2">{progressNarrative.nextStep}</p>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -683,29 +687,40 @@ function buildTutorBrief(
   return { headline, body, cues };
 }
 
-function buildGuidedSessionPlan(
+function buildProgressNarrative(
   studentState: ReturnType<typeof formatStudentState> | null,
+  analytics: ReturnType<typeof summarizeReasoningRuns> | null,
+  recoverySummary: string | null,
   recommendedTopics: Array<{ title: string; reason: string }>
 ) {
   const weakConcept = studentState?.weakConcepts[0];
   const recentFailure = studentState?.recentFailures[0];
   const recentSuccess = studentState?.recentSuccesses[0];
+  const misconception = analytics?.byMisconception[0]?.category || studentState?.misconceptionPatterns[0] || null;
+  const lowConfidenceStreak = studentState?.pacingProfile.lowConfidenceStreak ?? 0;
   const nextTopic = recommendedTopics[0];
+  const topicLabel = weakConcept ? titleCase(weakConcept) : nextTopic?.title || "your next guided review topic";
 
   return {
-    title: weakConcept ? `Focus on ${titleCase(weakConcept)}` : nextTopic?.title || "Run a guided recovery pass",
-    description: nextTopic?.reason || "Use a short, guided session to reinforce the concept most likely to improve your next tutoring run.",
-    steps: [
-      weakConcept
-        ? `Start with ${titleCase(weakConcept)} and explain the answer in your own words before flipping the card.`
-        : "Start with the first recommended concept and answer before revealing the solution.",
-      recentFailure
-        ? `Spend one extra coaching pass on this unstable area: ${trimText(recentFailure, 96)}`
-        : "When confidence drops, ask for a hint instead of guessing repeatedly.",
-      recentSuccess
-        ? `Finish by revisiting a recent win to lock in momentum: ${trimText(recentSuccess, 96)}`
-        : "End the session with one concept that now feels easier so the tutor can track recovery, not just struggle.",
-    ],
+    headline: weakConcept ? `${topicLabel} is still the concept to reinforce first.` : "The tutor can now point to one clear next reinforcement target.",
+    summary: recoverySummary
+      ? `${recoverySummary} The progress page should keep that thread intact by showing how the recent sessions connect, not just what they measured.`
+      : nextTopic?.reason || "Your recent study history is starting to form a clearer learning narrative, so the next step should reinforce one concept rather than scatter attention across the whole library.",
+    whatChanged: recentSuccess
+      ? `A recent win suggests part of the material is becoming easier to retrieve, which means the tutor can now build on momentum instead of only reacting to struggle. ${trimText(recentSuccess, 120)}`
+      : `The strongest change is structural: the tutor has enough history to stop giving generic next steps and start anchoring guidance around ${topicLabel}.`,
+    stillUnstable: recentFailure
+      ? `${trimText(recentFailure, 132)} still needs reinforcement, so the tutor should treat it as active learning work rather than a finished topic.`
+      : misconception
+        ? `${humanizeMisconceptionCategory(misconception)} remains the clearest instability pattern in the recent history, so worked examples and slower explanations are still the right posture here.`
+        : lowConfidenceStreak > 0
+          ? `There is still a low-confidence stretch in the recent study pattern, so pacing should stay calm and targeted until that stops repeating.`
+          : `${topicLabel} looks improved, but the tutor should still treat it as recently recovering rather than fully stable.`,
+    nextStep: weakConcept
+      ? `Start the next guided pass with ${topicLabel}, and if the explanation begins to slow down again, use coaching early instead of waiting until the end of the session.`
+      : nextTopic
+        ? `Use the next guided session to resume ${nextTopic.title.toLowerCase()} directly so the current recovery thread is not lost between visits.`
+        : `Run one short guided session and stay with the first concept that feels shaky until the explanation becomes cleaner, not merely familiar.`,
   };
 }
 
