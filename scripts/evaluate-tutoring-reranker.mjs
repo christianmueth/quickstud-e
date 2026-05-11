@@ -29,6 +29,7 @@ function parseArgs(argv) {
     blendWeights: [0.85, 0.75, 0.7, 0.65, 0.6, 0.55],
     abstainThresholds: [0.015, 0.03],
     disagreementBudgets: [0.02, 0.05, 0.08],
+    includeWorldModelFeatures: true,
   };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -48,6 +49,7 @@ function parseArgs(argv) {
     else if (arg === "--disagreement-budgets" && argv[index + 1]) {
       out.disagreementBudgets = parseNumberList(argv[++index], out.disagreementBudgets).map((value) => clamp(value, 0, 1));
     }
+    else if (arg === "--exclude-world-model") out.includeWorldModelFeatures = false;
     else if (arg === "--help" || arg === "-h") return { help: true };
   }
   return out;
@@ -72,6 +74,7 @@ if (args.help) {
     "  --blend-weights <a,b>     Heuristic weights to sweep for additive boosted blends (default: 0.85,0.75,0.7,0.65,0.6,0.55)",
     "  --abstain-thresholds <a,b> Minimum predicted uplift needed to override heuristic (default: 0.015,0.03)",
     "  --disagreement-budgets <a,b> Max disagreement rates for budgeted policy selection (default: 0.02,0.05,0.08)",
+    "  --exclude-world-model    Remove world-model features from offline vectorization for ablation",
   ].join("\n"));
   process.exit(0);
 }
@@ -92,6 +95,7 @@ try {
   console.log(`Synthetic scenarios: ${scenarios.length}`);
   console.log(`Seeds: ${args.seed}..${args.seed + args.seedCount - 1} (${args.seedCount} runs)`);
   console.log(`Frozen heuristic policy: ${scenarios[0]?.heuristicPolicyVersion || "synthetic_v1"}`);
+  console.log(`World-model features: ${args.includeWorldModelFeatures ? "enabled" : "excluded"}`);
   console.log("");
   const evaluationRuns = [];
   for (let seedOffset = 0; seedOffset < args.seedCount; seedOffset += 1) {
@@ -395,11 +399,18 @@ function numericFeatures(example) {
     ["num:recent_strategy_success_rate", toNumber(longitudinalState.recent_strategy_success_rate)],
     ["num:strategy_attempts_mean", meanNestedRecord(strategyHistory, "attempts")],
     ["num:strategy_history_success_mean", meanNestedRecord(strategyHistory, "successRate")],
-    ["num:wm_projected_confidence_delta", toNumber(worldModel.projected_confidence_delta)],
-    ["num:wm_projected_recovery_probability", toNumber(worldModel.projected_recovery_probability)],
-    ["num:wm_projected_stability_gain", toNumber(worldModel.projected_stability_gain)],
-    ["num:wm_projected_low_confidence_risk", toNumber(worldModel.projected_low_confidence_risk)],
   ];
+
+  if (args.includeWorldModelFeatures) {
+    features.push(
+      ["num:wm_projected_confidence_delta", toNumber(worldModel.projected_confidence_delta)],
+      ["num:wm_projected_recovery_probability", toNumber(worldModel.projected_recovery_probability)],
+      ["num:wm_projected_stability_gain", toNumber(worldModel.projected_stability_gain)],
+      ["num:wm_projected_low_confidence_risk", toNumber(worldModel.projected_low_confidence_risk)],
+    );
+  }
+
+  return features;
 }
 
 function categoricalFeatures(example) {
@@ -412,12 +423,14 @@ function categoricalFeatures(example) {
   for (const misconception of toStringArray(studentState.misconception_patterns)) features.push(`pattern=${misconception}`);
   for (const topic of toStringArray(state.weak_topic_matches)) features.push(`weak_topic=${topic}`);
   for (const concept of toStringArray(studentState.weak_concepts)) features.push(`weak_concept=${concept}`);
-  for (const topic of toStringArray(worldModel.projected_next_weak_topics)) features.push(`wm_next_weak=${topic}`);
-  for (const misconception of toStringArray(worldModel.projected_next_misconceptions)) features.push(`wm_next_misconception=${misconception}`);
   if (action.strategy_type) features.push(`strategy=${action.strategy_type}`);
   if (action.strategy_mode) features.push(`strategy_mode=${action.strategy_mode}`);
   if (studentState.preferred_explanation_style) features.push(`style=${studentState.preferred_explanation_style}`);
-  if (worldModel.version) features.push(`world_model=${worldModel.version}`);
+  if (args.includeWorldModelFeatures) {
+    for (const topic of toStringArray(worldModel.projected_next_weak_topics)) features.push(`wm_next_weak=${topic}`);
+    for (const misconception of toStringArray(worldModel.projected_next_misconceptions)) features.push(`wm_next_misconception=${misconception}`);
+    if (worldModel.version) features.push(`world_model=${worldModel.version}`);
+  }
   const pacing = studentState.pacing_profile?.preferredSpeed;
   if (typeof pacing === "string" && pacing.trim()) features.push(`pacing=${pacing}`);
   const volatilityBand = studentState.pacing_profile?.confidenceVolatilityBand;
