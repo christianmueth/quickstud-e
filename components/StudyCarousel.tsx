@@ -79,6 +79,16 @@ type StrategyPolicySummary = {
   lowConfidenceRuns: number;
 };
 
+type SessionEvent = {
+  rating: "again" | "good" | "easy";
+  coached: boolean;
+  recovered: boolean;
+  misconception: string | null;
+  weakTopic: string | null;
+  strategyLabel: string | null;
+  priorConfidence: number | null;
+};
+
 async function safeJson(res: Response) {
   try { const text = await res.text(); return text ? JSON.parse(text) : null; } catch { return null; }
 }
@@ -119,7 +129,19 @@ export default function StudyCarousel({
   const [xpToday, setXpToday] = useState(0);
   const [goal, setGoal] = useState(50);
   const [celebrated, setCelebrated] = useState(false);
+  const [sessionEvents, setSessionEvents] = useState<SessionEvent[]>([]);
+  const [sessionComplete, setSessionComplete] = useState(false);
   const router = useRouter();
+  const tutorPresence = useMemo(
+    () => buildTutorPresence({
+      card: current,
+      focusConcept,
+      focusReason,
+      recommendationSource,
+      coachResult,
+    }),
+    [current, focusConcept, focusReason, recommendationSource, coachResult]
+  );
 
   async function loadQueue() {
     setLoading(true);
@@ -134,14 +156,14 @@ export default function StudyCarousel({
       const meJson = meRes.ok ? await safeJson(meRes) : null;
 
       setQueue(Array.isArray(qJson?.cards) ? qJson.cards : []);
-      setIdx(0); setShowBack(false); setCelebrated(false); setAnswerDraft(""); setCoachResult(null); setPolicySummary(null);
+      setIdx(0); setShowBack(false); setCelebrated(false); setAnswerDraft(""); setCoachResult(null); setPolicySummary(null); setSessionEvents([]); setSessionComplete(false);
       setXpToday(Number(meJson?.xpToday ?? 0));
       setGoal(Number(meJson?.dailyGoal ?? 50));
 
-      if (!qRes.ok) toast.error("Failed to load study queue");
-      if (!meRes.ok) toast.error("Failed to load user stats");
+      if (!qRes.ok) toast.error("We couldn't prepare your guided session right now.");
+      if (!meRes.ok) toast.error("We couldn't load today's study progress right now.");
     } catch (e: any) {
-      toast.error(e?.message || "Network error"); setQueue([]);
+      toast.error(e?.message || "We couldn't load this guided session right now."); setQueue([]);
     } finally { setLoading(false); }
   }
 
@@ -170,13 +192,28 @@ export default function StudyCarousel({
         body: JSON.stringify({ cardId: current.id, rating, coachingContext }),
       });
 
+      setSessionEvents((events) => [
+        ...events,
+        {
+          rating,
+          coached: !!coachingContext,
+          recovered,
+          misconception: coachingContext?.misconceptionSignals?.[0] || null,
+          weakTopic: coachingContext?.weakTopicMatches?.[0] || null,
+          strategyLabel: coachingContext?.selectedStrategy?.label || null,
+          priorConfidence: typeof coachingContext?.verification?.confidence === "number"
+            ? coachingContext.verification.confidence
+            : null,
+        },
+      ]);
+
       const next = [...queue]; next.splice(idx, 1); if (rating === "again") next.push(current);
       setQueue(next); setShowBack(false); if (idx >= next.length) setIdx(Math.max(0, next.length - 1));
       setAnswerDraft(""); setCoachResult(null); setPolicySummary(null);
 
-      toast.success(rating === "easy" ? "Perfect! +5 XP" : rating === "good" ? "Nice! +3 XP" : "Keep going! +1 XP");
+      toast.success(rating === "easy" ? "Strong finish. +5 XP" : rating === "good" ? "Nice progress. +3 XP" : "Good catch. +1 XP");
       if (coachingContext) {
-        toast.message(recovered ? "Recovery recorded for this coached attempt" : "Recovery miss recorded for this coached attempt");
+        toast.message(recovered ? "The tutor recorded that this coaching step helped." : "The tutor recorded that this concept still needs another pass.");
       }
 
       const newXP = xpToday + gain; setXpToday(newXP);
@@ -186,18 +223,18 @@ export default function StudyCarousel({
           const confetti = (await import("canvas-confetti")).default;
           confetti({ particleCount: 120, spread: 70, origin: { y: 0.6 } });
         } catch { /* confetti optional */ }
-        toast.success("Daily goal reached! 🎉");
+        toast.success("Daily study goal reached! 🎉");
       }
 
-      if (next.length === 0) { toast.success("Session complete 🎉"); router.refresh(); }
-    } catch (e: any) { toast.error(e?.message || "Could not submit review"); }
+      if (next.length === 0) { setSessionComplete(true); toast.success("Guided session complete 🎉"); }
+    } catch (e: any) { toast.error(e?.message || "We couldn't save that study step."); }
   }
 
   async function coachCurrentCard() {
     if (!current) return;
     const studentAnswer = answerDraft.trim();
     if (!studentAnswer) {
-      toast.error("Write a short answer before requesting a hint");
+      toast.error("Write a short answer first so the tutor has something to respond to.");
       return;
     }
 
@@ -216,7 +253,7 @@ export default function StudyCarousel({
       });
       const data = (await safeJson(res)) as TutoringGuideResponse | null;
       if (!res.ok || !data?.ok) {
-        throw new Error((data as any)?.error || "Failed to generate adaptive coaching");
+        throw new Error((data as any)?.error || "We couldn't prepare tutor guidance for this step.");
       }
       setCoachResult(data);
 
@@ -253,7 +290,7 @@ export default function StudyCarousel({
 
       if (!showBack) setShowBack(true);
     } catch (e: any) {
-      toast.error(e?.message || "Could not load adaptive coaching");
+      toast.error(e?.message || "We couldn't load tutor guidance right now.");
     } finally {
       setCoachLoading(false);
     }
@@ -273,14 +310,47 @@ export default function StudyCarousel({
     return () => window.removeEventListener("keydown", onKey);
   }, [current, queue.length, xpToday, goal, celebrated]);
 
-  if (loading) return <div className="rounded border p-6 text-sm text-gray-500">Loading study set…</div>;
-  if (!queue.length)
+  if (loading) return <div className="rounded border p-6 text-sm text-gray-500">Preparing your guided session...</div>;
+  if (!queue.length && !sessionComplete)
     return (
       <div className="rounded border p-6 text-sm text-gray-500 flex items-center justify-between">
-        <span>No due cards right now.</span>
+        <span>Your tutor doesn't have a guided review pass waiting right now.</span>
         <button className="text-sm px-3 py-1.5 rounded border" onClick={loadQueue}>Refresh</button>
       </div>
     );
+
+  if (!queue.length && sessionComplete) {
+    const reflection = buildSessionReflection(sessionEvents, focusConcept);
+    return (
+      <div className="space-y-4">
+        <div className="rounded-3xl border border-emerald-200 bg-gradient-to-br from-emerald-50 via-white to-sky-50 p-6 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">Session reflection</p>
+          <h2 className="mt-3 text-2xl font-semibold tracking-tight text-slate-950">{reflection.headline}</h2>
+          <p className="mt-3 text-sm leading-7 text-slate-700">{reflection.summary}</p>
+          <div className="mt-5 grid gap-3 md:grid-cols-3">
+            {reflection.cues.map((cue) => (
+              <div key={cue} className="rounded-2xl border border-emerald-100 bg-white/90 p-4 text-sm leading-6 text-slate-700">
+                {cue}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-4">
+          <h3 className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-700">Tutor next step</h3>
+          <p className="mt-3 text-sm leading-6 text-slate-700">{reflection.nextStep}</p>
+          <div className="mt-4 flex flex-wrap gap-3">
+            <button className="rounded-full bg-slate-950 px-4 py-2 text-sm font-medium text-white" onClick={loadQueue}>
+              Start another pass
+            </button>
+            <button className="rounded-full border border-slate-300 px-4 py-2 text-sm font-medium text-slate-900" onClick={() => router.refresh()}>
+              Refresh workspace
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const pctDaily = Math.max(0, Math.min(100, Math.round((xpToday / (goal || 50)) * 100)));
   const card = current!;
@@ -291,8 +361,8 @@ export default function StudyCarousel({
         <div className="rounded-2xl border border-sky-200 bg-sky-50 p-4 text-sm text-sky-950">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <p className="font-semibold">Resuming this concept: {focusConcept || "Targeted review"}</p>
-              {focusReason ? <p className="mt-1 text-sky-900">Why this is recommended: {focusReason}</p> : null}
+              <p className="font-semibold">Today's focus: {focusConcept || "Targeted review"}</p>
+              {focusReason ? <p className="mt-1 text-sky-900">Why the tutor picked this: {focusReason}</p> : null}
             </div>
             {recommendationSource ? (
               <span className="rounded-full border border-sky-200 bg-white/80 px-3 py-1 text-xs uppercase tracking-[0.14em] text-sky-800">
@@ -304,9 +374,31 @@ export default function StudyCarousel({
       ) : null}
 
       <div>
-        <div className="text-xs text-gray-600 mb-1">Daily goal: {xpToday}/{goal} XP</div>
+        <div className="text-xs text-gray-600 mb-1">Daily study goal: {xpToday}/{goal} XP</div>
         <div className="h-2 w-full bg-gray-200 rounded">
           <div className="h-2 bg-black rounded" style={{ width: `${pctDaily}%` }} />
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-sky-200 bg-gradient-to-r from-sky-50 via-white to-cyan-50 p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="max-w-3xl">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-sky-700">Tutor guide</p>
+            <h3 className="mt-2 text-lg font-semibold text-slate-950">{tutorPresence.title}</h3>
+            <p className="mt-2 text-sm leading-6 text-slate-700">{tutorPresence.message}</p>
+          </div>
+          {tutorPresence.badge ? (
+            <span className="rounded-full border border-sky-200 bg-white/90 px-3 py-1 text-xs uppercase tracking-[0.14em] text-sky-800">
+              {tutorPresence.badge}
+            </span>
+          ) : null}
+        </div>
+        <div className="mt-4 grid gap-3 md:grid-cols-3">
+          {tutorPresence.cues.map((cue) => (
+            <div key={cue} className="rounded-xl border border-sky-100 bg-white/85 p-3 text-sm leading-6 text-slate-700">
+              {cue}
+            </div>
+          ))}
         </div>
       </div>
 
@@ -316,12 +408,12 @@ export default function StudyCarousel({
 
       <div className="rounded-2xl border p-6 min-h-[220px] flex flex-col justify-between">
         <div className="text-xs text-gray-500">
-          Card {idx + 1} / {queue.length} • Press <kbd>Space</kbd> to flip, <kbd>1</kbd>/<kbd>2</kbd>/<kbd>3</kbd> to grade
+          Prompt {idx + 1} / {queue.length} • Press <kbd>Space</kbd> to reveal, <kbd>1</kbd>/<kbd>2</kbd>/<kbd>3</kbd> to reflect how it went
         </div>
         <div className="text-lg whitespace-pre-wrap my-6">{showBack ? card.answer : card.question}</div>
         <div className="flex items-center gap-2">
-          <button className="px-3 py-1.5 rounded border" onClick={() => setIdx((i) => Math.max(0, i - 1))} disabled={idx === 0}>◀ Prev</button>
-          <button className="flex-1 px-3 py-1.5 rounded bg-black text-white" onClick={onFlip}>{showBack ? "Hide answer" : "Show answer"}</button>
+          <button className="px-3 py-1.5 rounded border" onClick={() => setIdx((i) => Math.max(0, i - 1))} disabled={idx === 0}>◀ Earlier</button>
+          <button className="flex-1 px-3 py-1.5 rounded bg-black text-white" onClick={onFlip}>{showBack ? "Hide tutor answer" : "Reveal tutor answer"}</button>
           <button className="px-3 py-1.5 rounded border" onClick={() => setIdx((i) => Math.min(queue.length - 1, i + 1))} disabled={idx >= queue.length - 1}>Next ▶</button>
         </div>
       </div>
@@ -329,21 +421,21 @@ export default function StudyCarousel({
       <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 space-y-3">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <h3 className="text-sm font-semibold text-slate-900">Try your answer first</h3>
-            <p className="text-xs text-slate-500">Inline adaptive tutoring uses your answer, misconception category, and prior strategy wins.</p>
+            <h3 className="text-sm font-semibold text-slate-900">Try your own explanation first</h3>
+            <p className="text-xs text-slate-500">The tutor uses your answer, likely misconception, and recent recovery patterns to decide what help to give next.</p>
           </div>
           <button
             className="px-3 py-1.5 rounded bg-slate-900 text-white disabled:opacity-60"
             onClick={coachCurrentCard}
             disabled={coachLoading}
           >
-            {coachLoading ? "Coaching…" : "Check and coach"}
+            {coachLoading ? "Thinking…" : "Get tutor help"}
           </button>
         </div>
         <textarea
           value={answerDraft}
           onChange={(event) => setAnswerDraft(event.target.value)}
-          placeholder="Write your answer or explanation here before flipping the card."
+          placeholder="Write your answer or explanation here before revealing the tutor answer."
           className="min-h-[96px] w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-slate-900"
         />
 
@@ -351,7 +443,7 @@ export default function StudyCarousel({
           <div className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
             <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 space-y-3">
               <div className="flex items-center justify-between gap-3">
-                <h4 className="text-sm font-semibold text-emerald-950">Adaptive tutoring decision</h4>
+                <h4 className="text-sm font-semibold text-emerald-950">Tutor guidance for this step</h4>
                 {coachResult.selectedStrategy ? (
                   <span className="rounded-full border border-emerald-200 bg-white/80 px-3 py-1 text-xs text-emerald-900">
                     {coachResult.selectedStrategy.strategyType}
@@ -372,7 +464,7 @@ export default function StudyCarousel({
             </div>
 
             <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 space-y-3">
-              <h4 className="text-sm font-semibold text-amber-950">Misconception and confidence</h4>
+              <h4 className="text-sm font-semibold text-amber-950">What the tutor is seeing</h4>
               <div className="flex flex-wrap gap-2">
                 {(coachResult.misconceptionSignals || []).length ? (
                   coachResult.misconceptionSignals?.map((signal) => (
@@ -381,26 +473,26 @@ export default function StudyCarousel({
                     </span>
                   ))
                 ) : (
-                  <span className="text-xs text-amber-900">No strong misconception signal detected.</span>
+                  <span className="text-xs text-amber-900">No strong misconception pattern stood out in this answer.</span>
                 )}
               </div>
               <div className="grid grid-cols-2 gap-3">
-                <MiniCoachStat label="Verification confidence" value={formatScore(coachResult.verification?.confidence)} />
-                <MiniCoachStat label="Strategy confidence" value={formatScore(coachResult.selectedStrategy?.confidence)} />
+                <MiniCoachStat label="Current understanding" value={formatScore(coachResult.verification?.confidence)} />
+                <MiniCoachStat label="Tutor confidence" value={formatScore(coachResult.selectedStrategy?.confidence)} />
               </div>
               {policySummary ? (
                 <div className="rounded-xl border border-amber-200 bg-white/80 p-3 text-xs text-amber-900 space-y-1">
-                  <div>Historical top strategy: {policySummary.topStrategy || "none yet"}</div>
-                  <div>Avg confidence for this category: {formatScore(policySummary.averageConfidence)}</div>
-                  <div>Low-confidence runs in slice: {policySummary.lowConfidenceRuns}</div>
-                  <div>Recovery tracking activates when you grade after coaching.</div>
+                  <div>Most helpful recent tutoring move here: {policySummary.topStrategy || "none yet"}</div>
+                  <div>Typical confidence in this pattern: {formatScore(policySummary.averageConfidence)}</div>
+                  <div>Recent low-confidence examples: {policySummary.lowConfidenceRuns}</div>
+                  <div>Your next rating helps the tutor learn whether this intervention actually helped.</div>
                 </div>
               ) : null}
               {coachResult.weakTopicMatches?.length ? (
                 <div className="flex flex-wrap gap-2">
                   {coachResult.weakTopicMatches.map((topic) => (
                     <span key={topic} className="rounded-full border border-amber-200 bg-white/80 px-3 py-1 text-xs text-amber-900">
-                      weak topic: {topic}
+                      focus area: {topic}
                     </span>
                   ))}
                 </div>
@@ -412,9 +504,9 @@ export default function StudyCarousel({
 
       {showBack && (
         <div className="flex items-center gap-3">
-          <button className="px-3 py-1.5 rounded bg-red-600 text-white" onClick={() => mark("again")}>1 · Again</button>
-          <button className="px-3 py-1.5 rounded bg-yellow-500 text-white" onClick={() => mark("good")}>2 · Good</button>
-          <button className="px-3 py-1.5 rounded bg-green-600 text-white" onClick={() => mark("easy")}>3 · Easy</button>
+          <button className="px-3 py-1.5 rounded bg-red-600 text-white" onClick={() => mark("again")}>1 · Still shaky</button>
+          <button className="px-3 py-1.5 rounded bg-yellow-500 text-white" onClick={() => mark("good")}>2 · Getting there</button>
+          <button className="px-3 py-1.5 rounded bg-green-600 text-white" onClick={() => mark("easy")}>3 · Feels solid</button>
         </div>
       )}
     </div>
@@ -445,6 +537,130 @@ function buildInlineWhyWon(result: TutoringGuideResponse, policy: StrategyPolicy
     reasons.push(`In recent runs for this category, ${policy.topStrategy.toLowerCase()} has been the most common winning intervention.`);
   }
   return reasons.slice(0, 4);
+}
+
+function buildTutorPresence({
+  card,
+  focusConcept,
+  focusReason,
+  recommendationSource,
+  coachResult,
+}: {
+  card: StudyCard | null;
+  focusConcept?: string | null;
+  focusReason?: string | null;
+  recommendationSource?: string | null;
+  coachResult: TutoringGuideResponse | null;
+}) {
+  const misconception = coachResult?.misconceptionSignals?.[0];
+  const preferredStyle = coachResult?.studentState?.preferredExplanationStyle;
+  const lowConfidenceStreak = coachResult?.studentState?.pacingProfile.lowConfidenceStreak ?? 0;
+  const selectedStrategy = coachResult?.selectedStrategy;
+
+  if (coachResult) {
+    return {
+      title: selectedStrategy
+        ? `Let's work this through with ${selectedStrategy.label.toLowerCase()}.`
+        : "I have a tutoring move ready for this card.",
+      message: misconception
+        ? `Your answer suggests ${humanizeMisconceptionCategory(misconception).toLowerCase()}, so I am steering this session toward a more targeted intervention instead of generic repetition.`
+        : "I am using your answer and recent study state to pick the next hint rather than showing a generic explanation.",
+      badge: selectedStrategy?.strategyType || recommendationSource || null,
+      cues: [
+        selectedStrategy?.hint || coachResult.tutoring?.final_answer || "Ask for coaching after you write your own answer to get a targeted hint.",
+        preferredStyle
+          ? `Current explanation style match: ${preferredStyle.toLowerCase()}.`
+          : "The tutor is still learning which explanation style works best for you.",
+        lowConfidenceStreak > 0
+          ? `You are in a ${lowConfidenceStreak}-step low-confidence stretch, so the tutor is keeping the pace slower.`
+          : "Confidence has not dipped for multiple steps in a row, so normal pacing is still appropriate.",
+      ],
+    };
+  }
+
+  return {
+    title: focusConcept ? `Today's session centers on ${focusConcept}.` : `Start by explaining ${trimQuestion(card?.question || "this card", 56)} in your own words.`,
+    message: focusReason
+      ? `Why this is next: ${focusReason}`
+      : "Write your answer before you flip the card. Once you do, the tutor can adapt the next hint to your confidence, misconception pattern, and recent recovery history.",
+    badge: recommendationSource ? recommendationSource.replace(/_/g, " ") : null,
+    cues: [
+      focusConcept
+        ? `The queue is already biased toward ${focusConcept} so you spend less time hunting for the right review target.`
+        : "Answer first. The tutor becomes more useful when it can react to your attempt instead of replacing it.",
+      "If the concept feels shaky, ask for coaching before grading so the recovery signal is captured.",
+      "After a strong recovery, grade the card normally so the tutor can learn whether this intervention actually helped.",
+    ],
+  };
+}
+
+function buildSessionReflection(events: SessionEvent[], focusConcept?: string | null) {
+  const coachedCount = events.filter((event) => event.coached).length;
+  const recoveredCount = events.filter((event) => event.recovered).length;
+  const easyCount = events.filter((event) => event.rating === "easy").length;
+  const againCount = events.filter((event) => event.rating === "again").length;
+  const topMisconception = mostCommonLabel(events.map((event) => event.misconception).filter(Boolean) as string[]);
+  const topWeakTopic = mostCommonLabel(events.map((event) => event.weakTopic).filter(Boolean) as string[]);
+  const topStrategy = mostCommonLabel(events.map((event) => event.strategyLabel).filter(Boolean) as string[]);
+
+  const headline = easyCount >= Math.max(1, Math.ceil(events.length / 2))
+    ? "You ended this session with solid recovery momentum."
+    : recoveredCount > againCount
+      ? "You made progress, but one area still wants another pass."
+      : "This session exposed a concept that still needs slower reinforcement.";
+
+  const summary = [
+    `You completed ${events.length} card${events.length === 1 ? "" : "s"}`,
+    coachedCount > 0 ? `used coaching on ${coachedCount} step${coachedCount === 1 ? "" : "s"}` : null,
+    recoveredCount > 0 ? `and recovered ${recoveredCount} coached attempt${recoveredCount === 1 ? "" : "s"}` : null,
+  ].filter(Boolean).join(" ") + ".";
+
+  const cues = [
+    topMisconception
+      ? `Most common friction point: ${humanizeMisconceptionCategory(topMisconception)}.`
+      : "No single misconception dominated this session.",
+    topStrategy
+      ? `Most-used tutoring move: ${topStrategy.toLowerCase()}.`
+      : "You did not need a repeated tutoring move to finish this session.",
+    topWeakTopic || focusConcept
+      ? `Best next focus: ${titleFromSignal(topWeakTopic || focusConcept || "")}.`
+      : "Best next focus: revisit the first card that still felt slow or uncertain.",
+  ];
+
+  const nextStep = againCount > 0
+    ? `Start one more short pass${topWeakTopic || focusConcept ? ` centered on ${titleFromSignal(topWeakTopic || focusConcept || "")}` : ""} and ask for coaching earlier on the first unstable card.`
+    : `Take the momentum forward with a short follow-up review${topWeakTopic || focusConcept ? ` on ${titleFromSignal(topWeakTopic || focusConcept || "")}` : ""} before switching topics.`;
+
+  return { headline, summary, cues, nextStep };
+}
+
+function mostCommonLabel(labels: string[]) {
+  const counts = new Map<string, number>();
+  for (const label of labels) {
+    counts.set(label, (counts.get(label) || 0) + 1);
+  }
+  let best: string | null = null;
+  let bestCount = 0;
+  for (const [label, count] of counts.entries()) {
+    if (count > bestCount) {
+      best = label;
+      bestCount = count;
+    }
+  }
+  return best;
+}
+
+function titleFromSignal(value: string) {
+  return value
+    .split(/[_\s]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(" ");
+}
+
+function trimQuestion(value: string, limit: number) {
+  if (value.length <= limit) return value;
+  return `${value.slice(0, Math.max(0, limit - 3)).trimEnd()}...`;
 }
 
 function formatScore(value: number | undefined | null) {

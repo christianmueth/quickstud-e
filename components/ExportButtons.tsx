@@ -24,13 +24,13 @@ export default function ExportButtons({ deckId }: { deckId: string }) {
   return (
     <div className="flex gap-2">
       <button className="text-sm px-3 py-1.5 rounded border" onClick={() => download("csv")} disabled={!!busy}>
-        {busy === "csv" ? "…" : "Export CSV"}
+        {busy === "csv" ? "Preparing..." : "Download CSV"}
       </button>
       <button className="text-sm px-3 py-1.5 rounded border" onClick={() => download("tsv")} disabled={!!busy}>
-        {busy === "tsv" ? "…" : "Export TSV"}
+        {busy === "tsv" ? "Preparing..." : "Download TSV"}
       </button>
       <button className="text-sm px-3 py-1.5 rounded border" title="Anki can import TSV" onClick={() => download("anki-tsv")} disabled={!!busy}>
-        {busy === "anki-tsv" ? "…" : "Export Anki (TSV)"}
+        {busy === "anki-tsv" ? "Preparing..." : "Download for Anki"}
       </button>
     </div>
   );

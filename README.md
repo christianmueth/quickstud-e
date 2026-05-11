@@ -10,6 +10,10 @@ Avoid claiming that the product is already a full autonomous MuZero agent. The c
 
 The implementation contract for that architecture lives in `docs/REASONING_ENGINE_ARCHITECTURE.md`.
 
+The student-facing product roadmap and bounded feature rollout plan live in `docs/PRODUCT_FEATURE_MAP.md`.
+
+The visual companion to that roadmap lives in `docs/VISUAL_PRODUCT_ARCHITECTURE_MAP.md`.
+
 Two repo rules follow from that contract:
 
 - App and frontend code only interact with stable product APIs and shared contracts.

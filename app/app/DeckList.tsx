@@ -22,7 +22,7 @@ export default async function DeckList() {
   if (!user) return null;
 
   if (user.decks.length === 0) {
-    return <p className="text-gray-600">No decks yet — create your first one above.</p>;
+    return <p className="text-gray-600">No study sets yet. Create one above to start a guided session.</p>;
   }
 
   return (
@@ -32,7 +32,7 @@ export default async function DeckList() {
           <Link href={`/app/deck/${d.id}`} className="font-medium underline">
             {d.title}
           </Link>
-          <span className="text-sm text-gray-600">{d._count.cards} cards</span>
+          <span className="text-sm text-gray-600">{d._count.cards} prompt{d._count.cards === 1 ? "" : "s"}</span>
         </li>
       ))}
     </ul>

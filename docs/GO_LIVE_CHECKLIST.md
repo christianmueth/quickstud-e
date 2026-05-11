@@ -1,172 +1,251 @@
 # Go-Live Checklist
 
-Use this runbook before the first public deployment and before any materially similar re-launch.
+Use this as the operator runbook before first public deployment and before any materially similar relaunch.
 
-QuickStud-E is now a deployable replay-governed adaptive tutoring platform. The goal of this checklist is not to increase capability. The goal is to verify that the public product surface, the bounded authority posture, and the internal governance boundary all remain intact at launch.
+Public launch is blocked unless all of the following are true:
 
-## Release Standard
-
-Public deployment is acceptable only if all three conditions remain true:
-
-- the student-facing tutoring product is coherent and usable
-- adaptive authority remains bounded and shadow-first
-- replay and governance surfaces remain operator-only
-
-If any of those fail, hold deployment and fix the boundary rather than widening risk acceptance.
-
-## 1. Operator Authorization
-
-Set the operator allowlist before launch:
-
-```text
-INTERNAL_OPERATOR_CLERK_USER_IDS=user_abc123,user_xyz456
-```
-
-Requirements:
-
-- include every operator Clerk user ID that should access replay and governance surfaces
-- keep the variable set in the production environment
-- prefer a small allowlist over broad internal exposure
-- fail closed if the allowlist is missing or incomplete
-
-## 2. Production Secrets And Connectivity
-
-Set and verify the minimum production secrets before launch:
-
-```text
-INTERNAL_OPERATOR_CLERK_USER_IDS=user_abc123,user_xyz456
-DATABASE_URL=...
-CLERK_SECRET_KEY=...
-NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=...
-```
-
-Verify all of the following against the real deployment target:
-
-- Neon database connectivity
-- Prisma connectivity
-- Clerk authentication
-- operator allowlist presence
-
-If any of those fail, do not proceed to public launch.
-
-## 3. Access Boundary Verification
-
-Verify each case with a real session before launch.
-
-| Surface | Operator account | Regular student | Anonymous session |
-| --- | --- | --- | --- |
-| `/app/reasoning` | accessible | denied | denied |
-| `/api/reasoning-runs` | accessible | denied | denied |
-| `/api/governance/latest` | accessible | denied | denied |
-
-Also verify that the replay console and its weekly governance snapshot panel are visible only to operator-authorized sessions.
-
-Expected behavior:
-
-- operator accounts can access the internal replay console and governance bundle
-- regular student accounts cannot access replay or governance surfaces
-- anonymous sessions cannot access replay or governance surfaces
-
-The public UI should not advertise internal governance tooling.
-
-## 4. Infrastructure Verification
-
-Confirm the environment is operational before launch.
-
-- verify Prisma migrations are applied
-- verify adaptive environment variables are correct
-- verify `INTERNAL_OPERATOR_CLERK_USER_IDS` is configured
-- verify weekly governance report generation succeeds
-- verify export scripts still run against the connected database
-
-Minimum adaptive posture at launch:
-
-- `TUTORING_ADAPTIVE_RERANK_SHADOW=1`
+- the production build succeeds
+- production migrations succeed
+- `INTERNAL_OPERATOR_CLERK_USER_IDS` is correctly configured with real operator IDs
 - `TUTORING_ADAPTIVE_RERANK_ENABLED=0`
-- `TUTORING_ADAPTIVE_POLICY_VERSION=offline_selected_v1`
-- `TUTORING_ADAPTIVE_BLEND_WEIGHT=0.55`
-- `TUTORING_ADAPTIVE_ABSTAIN_THRESHOLD=0.015`
+- anonymous -> protected route -> homepage `?next=...` -> modal auth -> restored destination works
+- operator-only replay and governance surfaces remain fail-closed for non-operators
 
-## 5. Product Verification
+If any of those fail, do not launch.
 
-Run a final pass on the public product surface.
+## 1. Repo Baseline
 
-- homepage loads and reflects adaptive tutoring, recovery-aware learning, and bounded authority accurately
-- tutoring flow works end to end
-- progress dashboard loads correctly
-- recovery timeline renders correctly
-- resume-this-concept routing lands in focused study as expected
-- trust page loads and explains adaptive guidance clearly
-- onboarding and sign-in flows work cleanly
-
-The deployment target is a coherent tutoring product, not a demonstration of internal governance internals.
-
-## 6. Governance Verification
-
-Check the internal governance loop before launch.
-
-- replay console loads for operator accounts
-- latest governance bundle is visible in the replay console
-- disagreement metrics are present when data exists
-- abstention metrics are present when data exists
-- recovery metrics are present when data exists
-- weekly report generation runs without blocking errors
-
-Absence of traffic is acceptable early. Absence of governance access control is not.
-
-## 7. Final Build Check
-
-Run the production build before deployment.
+Run:
 
 ```powershell
+git status
+git log -1
+npm install
+npx prisma generate
 npm run build
 ```
 
-Treat build success as necessary but not sufficient. Launch readiness also depends on the access boundary and operational checks above.
+Pass only if:
 
-## 8. Immediate Post-Deploy Posture
+- working tree is in the expected deploy state
+- dependencies install cleanly
+- Prisma client generates cleanly
+- build succeeds without fatal route or runtime failures
 
-After launch:
+## 2. Production Environment
 
-- collect real tutoring traces
-- review replay weekly
-- preserve governance cadence
-- inspect recovery progression
-- monitor disagreement geometry
-- preserve abstention discipline
+Verify the real production environment contains:
 
-Do not:
+```text
+DATABASE_URL=...
+CLERK_SECRET_KEY=...
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=...
+INTERNAL_OPERATOR_CLERK_USER_IDS=user_abc123,user_xyz456
+TUTORING_ADAPTIVE_RERANK_SHADOW=1
+TUTORING_ADAPTIVE_RERANK_ENABLED=0
+TUTORING_ADAPTIVE_POLICY_VERSION=offline_selected_v1
+TUTORING_ADAPTIVE_BLEND_WEIGHT=0.55
+TUTORING_ADAPTIVE_ABSTAIN_THRESHOLD=0.015
+```
 
-- widen authority
-- reduce abstention aggressively
-- enable planner authority
-- add online RL authority
-- bypass replay review
-- optimize for aggressive automation
+Pass only if:
 
-The weekly governance cadence command is:
+- `INTERNAL_OPERATOR_CLERK_USER_IDS` contains real Clerk user IDs only
+- placeholder IDs are removed
+- `TUTORING_ADAPTIVE_RERANK_ENABLED=0`
+- `TUTORING_ADAPTIVE_RERANK_SHADOW=1`
+
+## 3. Database Verification
+
+Run against production:
+
+```powershell
+npx prisma migrate deploy
+npx prisma migrate status
+```
+
+Pass only if:
+
+- migrations apply successfully
+- reasoning tables exist
+- no pending migration drift is reported
+- no connectivity failures occur
+
+## 4. Seed Account Verification
+
+Verify these accounts and their intended states exist before QA:
+
+- `newstudent@test.quickstude`
+- `recoveringstudent@test.quickstude`
+- `strongstudent@test.quickstude`
+- `operator@test.quickstude`
+
+The canonical demo and smoke-test account is `recoveringstudent@test.quickstude`.
+
+Pass only if the recovering-student account visibly demonstrates:
+
+- weak concepts
+- stabilized concepts
+- misconception patterns
+- recovery events
+- recommendation traces
+- tutor memory moments
+- prior guided-session summaries
+
+If these adaptive surfaces appear empty, do not treat seed setup as complete.
+
+## 5. Highest-Priority Auth Flow
+
+Test this first.
+
+1. Open an anonymous browser session.
+2. Navigate directly to `/app/progress`.
+3. Verify redirect lands on `/?next=/app/progress`.
+4. Verify the homepage loads cleanly and modal auth can be triggered from the homepage or header.
+5. Sign in as `recoveringstudent@test.quickstude`.
+6. Verify the user returns to `/app/progress`.
+7. Verify all of the following are visible immediately:
+	- tutor progress read
+	- recommendations
+	- recovery summaries
+	- tutor memory moments
+
+Pass only if:
+
+- no redirect loop occurs
+- no auth mismatch occurs
+- the requested destination is preserved
+- adaptive surfaces are populated immediately
+- tutor voice remains coherent
+
+## 6. Guided Session Verification
+
+Using `recoveringstudent@test.quickstude`:
+
+1. Open the progress dashboard.
+2. Click a recommended concept.
+3. Verify focused guided session framing appears.
+4. Verify the session shows why the tutor picked the concept.
+5. Answer incorrectly.
+6. Request tutor help.
+7. Verify the tutoring references a weak concept or misconception pattern.
+8. Grade the step as `Still shaky`.
+9. Finish the session.
+10. Verify post-session reflection references actual weak concepts or stabilization state.
+
+Pass only if:
+
+- tutor voice does not disappear mid-flow
+- no raw technical wording leaks into the session
+- recommendations feel continuous with the dashboard state
+- reflection references seeded adaptive state rather than generic copy
+
+## 7. Empty-State Verification
+
+Using `newstudent@test.quickstude`:
+
+1. Open `/app/progress`.
+2. Verify calm onboarding language and minimal recommendations.
+3. Verify recovery state is light but supportive rather than empty or mechanical.
+4. Create a first study set.
+5. Generate guided review.
+
+Pass only if:
+
+- empty states remain supportive
+- no technical jargon leaks through
+- tutor continuity remains intact through first-set creation
+
+## 8. Operator Boundary Verification
+
+Use three sessions:
+
+- anonymous browser
+- signed-in student browser
+- signed-in operator browser
+
+Verify:
+
+| Surface | Operator account | Regular student | Anonymous session |
+| --- | --- | --- | --- |
+| `/app/reasoning` | accessible | denied | redirected or denied |
+| `/api/reasoning-runs` | accessible | denied | denied |
+| `/api/governance/latest` | accessible | denied | denied |
+
+Pass only if:
+
+- replay is inaccessible to students
+- governance APIs are inaccessible to students and anonymous sessions
+- operator session can load the replay console and governance snapshot
+- failures remain fail-closed
+
+## 9. Public Product Verification
+
+Verify public and student-facing surfaces:
+
+- homepage loads cleanly
+- resources page loads and explains bounded adaptive guidance accurately
+- modal sign-in and sign-up work from homepage and header
+- study workspace loads
+- progress page loads
+- recommendations route into focused study
+- recovery timeline renders when adaptive state exists
+
+Verify language remains consistent with the live product vocabulary:
+
+- study set
+- guided review
+- study prompt
+- guided session
+- study workspace
+
+Avoid launch if visible student flows regress back into raw technical wording or brittle auth routes.
+
+## 10. Final Governance Verification
+
+Verify before public traffic:
+
+- `TUTORING_ADAPTIVE_RERANK_ENABLED=0`
+- `TUTORING_ADAPTIVE_RERANK_SHADOW=1`
+- no planner authority is enabled
+- no online RL authority is enabled
+- no unrestricted Muon gating is enabled
+- weekly governance generation runs without blocking errors
+
+Run:
 
 ```powershell
 npm run reasoning:report:weekly
 ```
 
-Do not skip it.
+## 11. Launch And Post-Launch
 
-## 9. Correct Success Definition
+Launch only after all sections above pass.
 
-The correct success definition for this phase is:
+Immediately after launch:
 
-- safe public tutoring deployment
-- continuous governance operation
-- preserved bounded authority
-- real evidence accumulation under traffic
-- stable educational recovery monitoring
+- collect tutoring traces
+- collect recovery trajectories
+- review replay weekly
+- inspect recommendation coherence
+- inspect abstention behavior
+- preserve governance cadence without interruption
 
-Success is not maximal autonomy.
+Stop and review immediately if:
 
-## 10. Related Runbooks
+- redirect loops appear
+- `?next` preservation breaks
+- adaptive surfaces appear empty for the recovering-student persona
+- tutor continuity collapses into technical wording
+- replay or governance becomes visible to students
+- adaptive authority is widened accidentally
 
+## 12. Related Documents
+
+- `docs/PRODUCTION_LAUNCH_COMMAND_SHEET.md`
+- `docs/LAUNCH_BRIEF.md`
 - `docs/REASONING_ENGINE_ARCHITECTURE.md`
 - `docs/ADAPTIVE_CHANGE_REVIEW.md`
 - `docs/SHADOW_EXPORT_WORKFLOW.md`
 - `docs/OPERATIONAL_REVIEW_CADENCE.md`
+- `docs/PRODUCTION_OPERATOR_TEST_SCRIPT.md`

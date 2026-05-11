@@ -9,21 +9,21 @@ export default function DeleteDeckButton({ deckId }: { deckId: string }) {
 
   function onAskDelete() {
     if (busy) return;
-    toast("Delete this deck?", {
-      description: "This removes the deck and all its cards.",
+    toast("Remove this learning space?", {
+      description: "This removes the study set and everything inside it.",
       action: {
-        label: "Delete",
+        label: "Remove",
         onClick: async () => {
           setBusy(true);
-          const t = toast.loading("Deleting…");
+          const t = toast.loading("Removing learning space...");
           try {
             const res = await fetch(`/api/deck/${deckId}`, { method: "DELETE" });
-            if (!res.ok) throw new Error("Delete failed");
-            toast.success("Deck deleted");
+            if (!res.ok) throw new Error("We couldn't remove this learning space.");
+            toast.success("Learning space removed");
             router.push("/app");
             router.refresh();
           } catch (e: any) {
-            toast.error(e?.message || "Delete failed");
+            toast.error(e?.message || "We couldn't remove this learning space.");
             setBusy(false);
           } finally {
             toast.dismiss(t);
@@ -41,7 +41,7 @@ export default function DeleteDeckButton({ deckId }: { deckId: string }) {
       disabled={busy}
       className="px-3 py-1.5 rounded bg-red-600 text-white disabled:opacity-60"
     >
-      {busy ? "Deleting…" : "Delete Deck"}
+      {busy ? "Removing..." : "Remove set"}
     </button>
   );
 }

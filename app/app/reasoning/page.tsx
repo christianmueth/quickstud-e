@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 
 export default async function ReasoningPage() {
   const { userId } = await auth();
-  if (!userId) redirect("/sign-in");
+  if (!userId) redirect(`/?next=${encodeURIComponent("/app/reasoning")}`);
   if (!isInternalOperator(userId)) redirect("/app");
 
   return <ReasoningReplayConsole />;

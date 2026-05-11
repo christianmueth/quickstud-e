@@ -75,13 +75,13 @@ export default function StudyNotesViewPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold">{title}</h1>
-          <p className="text-sm text-gray-500 mt-1">Source: {source}</p>
+          <p className="text-sm text-gray-500 mt-1">Study source: {source}</p>
         </div>
         <button
           onClick={() => router.push("/app")}
           className="px-4 py-2 border rounded hover:bg-gray-50"
         >
-          ← Back to Decks
+          ← Back to study workspace
         </button>
       </div>
 
@@ -90,11 +90,11 @@ export default function StudyNotesViewPage() {
         <button
           onClick={() => {
             navigator.clipboard.writeText(notes);
-            alert("Notes copied to clipboard!");
+            alert("Study notes copied to your clipboard.");
           }}
           className="px-4 py-2 border rounded hover:bg-gray-50"
         >
-          📋 Copy Notes
+          📋 Copy study notes
         </button>
         <button
           onClick={() => window.print()}

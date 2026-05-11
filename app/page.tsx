@@ -1,9 +1,16 @@
 // app/page.tsx
 import Image from "next/image";
 import Link from "next/link";
-import { SignedIn } from "@clerk/nextjs";
+import { SignInButton, SignUpButton, SignedIn, SignedOut } from "@clerk/nextjs";
 
-export default function Home() {
+export default async function Home({
+  searchParams,
+}: {
+  searchParams: Promise<{ next?: string }>;
+}) {
+  const resolvedSearchParams = await searchParams;
+  const nextTarget = normalizeNextTarget(resolvedSearchParams.next);
+
   return (
     <main className="flex min-h-[calc(100vh-64px)] items-center justify-center p-6">
       <div className="mx-auto max-w-4xl text-center space-y-6">
@@ -13,6 +20,7 @@ export default function Home() {
             src="/quickstud_e.png"   // put quickstud_e.png in /public
             alt="QuickStud-E"
             fill
+            sizes="(max-width: 640px) 160px, 192px"
             className="object-contain"
             priority
           />
@@ -20,22 +28,22 @@ export default function Home() {
 
         {/* Headline + subcopy always visible */}
         <h1 className="text-3xl sm:text-5xl font-semibold">
-          Replay-governed adaptive tutoring for real study work
+          A calm adaptive tutor for real study sessions
         </h1>
         <p className="mx-auto max-w-2xl text-gray-600">
-          QuickStud-E combines flashcards, tutoring hints, student-state memory, misconception tracking, and replay-visible adaptive decision support under strict rollout governance.
+          QuickStud-E helps you study with guided review, tutoring hints, progress memory, and recovery-aware recommendations that stay understandable from one session to the next.
         </p>
 
         <div className="flex flex-wrap items-center justify-center gap-2 text-sm text-gray-700">
-          <span className="rounded-full border border-gray-200 bg-gray-50 px-3 py-1">Flashcards and study decks</span>
-          <span className="rounded-full border border-gray-200 bg-gray-50 px-3 py-1">AI tutoring and verification</span>
-          <span className="rounded-full border border-gray-200 bg-gray-50 px-3 py-1">Student-state memory</span>
-          <span className="rounded-full border border-gray-200 bg-gray-50 px-3 py-1">Misconception and recovery tracking</span>
-          <span className="rounded-full border border-gray-200 bg-gray-50 px-3 py-1">Adaptive shadow scoring</span>
+          <span className="rounded-full border border-gray-200 bg-gray-50 px-3 py-1">Guided study sessions</span>
+          <span className="rounded-full border border-gray-200 bg-gray-50 px-3 py-1">Tutor hints that react to your answer</span>
+          <span className="rounded-full border border-gray-200 bg-gray-50 px-3 py-1">Progress memory across sessions</span>
+          <span className="rounded-full border border-gray-200 bg-gray-50 px-3 py-1">Recovery-aware recommendations</span>
+          <span className="rounded-full border border-gray-200 bg-gray-50 px-3 py-1">Clear next-step explanations</span>
         </div>
 
         <p className="mx-auto max-w-2xl text-sm text-gray-500">
-          The live product ships with adaptive scoring in shadow mode and heuristic tutoring still authoritative, so governed world-model-inspired decision support is available without unchecked planner authority.
+          The tutoring experience is adaptive, but its authority stays bounded. Recommendations are meant to feel useful and explainable, not opaque or over-controlling.
         </p>
 
         <div className="flex flex-wrap items-center justify-center gap-3">
@@ -43,22 +51,47 @@ export default function Home() {
             href="/how-adaptive-guidance-works"
             className="rounded-full border border-gray-300 px-6 py-3 text-sm font-medium text-gray-800 hover:bg-gray-50"
           >
-            How adaptive guidance works
+            Explore resources
           </Link>
 
-        {/* Center CTA only when signed IN */}
-        <SignedIn>
-          <div className="flex items-center justify-center">
+          <SignedOut>
+            <SignUpButton
+              mode="modal"
+              forceRedirectUrl={nextTarget}
+              signInForceRedirectUrl={nextTarget}
+            >
+              <button className="rounded-full bg-black px-6 py-3 text-sm font-medium text-white hover:opacity-90">
+                Start guided study
+              </button>
+            </SignUpButton>
+            <SignInButton
+              mode="modal"
+              forceRedirectUrl={nextTarget}
+              signUpForceRedirectUrl={nextTarget}
+            >
+              <button className="rounded-full border border-gray-300 px-6 py-3 text-sm font-medium text-gray-800 hover:bg-gray-50">
+                Sign in
+              </button>
+            </SignInButton>
+          </SignedOut>
+
+          <SignedIn>
             <Link
               href="/app"
-              className="rounded-full bg-black px-6 py-3 text-white hover:opacity-90"
+              className="rounded-full bg-black px-6 py-3 text-sm font-medium text-white hover:opacity-90"
             >
               Open study workspace
             </Link>
-          </div>
-        </SignedIn>
+          </SignedIn>
         </div>
       </div>
     </main>
   );
+}
+
+function normalizeNextTarget(value: string | undefined) {
+  const trimmed = String(value || "").trim();
+  if (!trimmed.startsWith("/")) return "/app";
+  if (trimmed.startsWith("//")) return "/app";
+  return trimmed;
 }

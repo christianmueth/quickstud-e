@@ -1,0 +1,11 @@
+{
+  "reportDate": "2026-05-10",
+  "topStrategyShifts": [],
+  "misconceptionBuckets": [],
+  "strategyBuckets": [],
+  "warnings": [
+    "Shadow sample is small (0 examples); disagreement geometry may still be unstable.",
+    "Abstention share is low at 0; calibration drift may be present.",
+    "Candidate-score margin is compressed (mean 0); real candidate separability may be weak."
+  ]
+}

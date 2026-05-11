@@ -4,127 +4,123 @@ import Link from "next/link";
 export const metadata: Metadata = {
   title: "How Adaptive Guidance Works | QuickStud-E",
   description:
-    "Learn how QuickStud-E personalizes tutoring with student-state memory, replay review, governed adaptive scoring, and staged rollout safeguards.",
+    "Learn how QuickStud-E personalizes tutoring with bounded guidance, interpretable recommendations, and calm study flow.",
 };
 
-const sections = [
+const guidancePrinciples = [
   {
-    title: "Adaptive guidance",
-    body:
-      "QuickStud-E personalizes tutoring by comparing multiple guidance options and selecting the one that best fits the learner's current state. The goal is not to maximize novelty or automation. The goal is to provide the next helpful step with stable, inspectable reasoning.",
+    title: "Guidance stays bounded",
+    body: "QuickStud-E can suggest what to review next and how to explain it, but it does not quietly take control of your learning plan.",
   },
   {
-    title: "Learning memory",
-    body:
-      "The system keeps track of student progress, weak topics, and recurring misconceptions so tutoring can build on prior work instead of restarting from scratch. This memory supports continuity across study sessions and makes remediation more targeted.",
+    title: "Recommendations stay interpretable",
+    body: "When the tutor brings a concept back, it should be because your recent answers, confidence, or recovery pattern made that choice reasonable.",
   },
   {
-    title: "Replay and review",
-    body:
-      "Tutoring decisions are analyzed over time through replay-oriented review. That gives the team a way to inspect why a strategy was selected, compare alternatives, and study whether guidance choices are helping students recover from confusion more reliably.",
-  },
-  {
-    title: "Governed adaptation",
-    body:
-      "Adaptive improvements are introduced under governance rather than silently pushed into live authority. New scoring logic is monitored, compared against the current heuristic baseline, and evaluated for stability before it can influence tutoring behavior.",
-  },
-  {
-    title: "Shadow-first rollout",
-    body:
-      "New adaptive logic is first tested in shadow mode. That means QuickStud-E can score and analyze possible interventions without immediately changing what learners see. This lets the team collect evidence before expanding authority.",
-  },
-  {
-    title: "Bounded authority and rollback",
-    body:
-      "When adaptive logic eventually gains more influence, that happens gradually, within explicit bounds, and with a rollback path. Human review, replay visibility, and operational checks remain part of the system so product behavior stays understandable and reversible.",
+    title: "Progress matters more than automation",
+    body: "The product is designed to feel like one calm tutor across a session, not like a black-box system making hidden decisions around you.",
   },
 ];
 
-export default function HowAdaptiveGuidanceWorksPage() {
+const signsTheTutorUses = [
+  "recent hesitation on a concept",
+  "repeated misconception patterns",
+  "recovery after tutor help",
+  "which explanation style has been helping most",
+  "whether your confidence has been dropping across recent steps",
+];
+
+const whatItDoesNotDo = [
+  "quietly widen its own authority",
+  "replace your study judgment with hidden planner control",
+  "treat one shaky answer as proof that you need a full curriculum change",
+  "hide why a recommendation appeared",
+];
+
+export default function AdaptiveGuidancePage() {
   return (
-    <main className="min-h-[calc(100vh-64px)] bg-gradient-to-b from-stone-50 via-white to-sky-50 px-6 py-16">
-      <div className="mx-auto max-w-5xl space-y-12">
-        <section className="space-y-6 text-center">
-          <p className="text-sm font-medium uppercase tracking-[0.18em] text-sky-700">
-            Trust and control
-          </p>
-          <h1 className="text-4xl font-semibold tracking-tight text-gray-950 sm:text-5xl">
-            How adaptive guidance works
-          </h1>
-          <p className="mx-auto max-w-3xl text-lg leading-8 text-gray-600">
-            QuickStud-E adapts tutoring by combining student-state memory, candidate guidance evaluation, and replay-based review. The system is designed to personalize help while keeping authority staged, observable, and reversible.
-          </p>
-          <div className="flex flex-wrap items-center justify-center gap-3 text-sm text-gray-700">
-            <span className="rounded-full border border-sky-200 bg-white px-3 py-1">Personalized tutoring</span>
-            <span className="rounded-full border border-sky-200 bg-white px-3 py-1">Misconception tracking</span>
-            <span className="rounded-full border border-sky-200 bg-white px-3 py-1">Replay-based review</span>
-            <span className="rounded-full border border-sky-200 bg-white px-3 py-1">Shadow-first rollout</span>
-            <span className="rounded-full border border-sky-200 bg-white px-3 py-1">Bounded adaptive authority</span>
-          </div>
-        </section>
+    <main className="mx-auto max-w-5xl space-y-10 px-6 py-10">
+      <section className="rounded-[2rem] border border-sky-200 bg-gradient-to-br from-sky-50 via-white to-cyan-50 p-8 shadow-sm">
+        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-700">Resources</p>
+        <h1 className="mt-3 max-w-3xl text-4xl font-semibold tracking-tight text-slate-950">
+          How adaptive guidance works in QuickStud-E
+        </h1>
+        <p className="mt-4 max-w-3xl text-sm leading-7 text-slate-700">
+          The tutor uses your recent answers, recovery pattern, and study history to decide what kind of help is most useful next.
+          The goal is not to act like an autonomous planner. The goal is to keep the next study step understandable, timely, and calm.
+        </p>
+        <div className="mt-6 flex flex-wrap gap-3">
+          <Link
+            href="/?next=%2Fapp"
+            className="rounded-full bg-slate-950 px-5 py-2.5 text-sm font-medium text-white hover:bg-slate-800"
+          >
+            Start guided study
+          </Link>
+          <Link
+            href="/"
+            className="rounded-full border border-slate-300 px-5 py-2.5 text-sm font-medium text-slate-900 hover:bg-white"
+          >
+            Return home
+          </Link>
+        </div>
+      </section>
 
-        <section className="grid gap-5 md:grid-cols-2">
-          {sections.map((section) => (
-            <article
-              key={section.title}
-              className="rounded-3xl border border-gray-200 bg-white/90 p-7 shadow-sm"
-            >
-              <h2 className="text-xl font-semibold text-gray-950">{section.title}</h2>
-              <p className="mt-3 text-base leading-7 text-gray-600">{section.body}</p>
-            </article>
-          ))}
-        </section>
+      <section className="grid gap-5 md:grid-cols-3">
+        {guidancePrinciples.map((principle) => (
+          <article key={principle.title} className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+            <h2 className="text-lg font-semibold text-slate-950">{principle.title}</h2>
+            <p className="mt-3 text-sm leading-7 text-slate-700">{principle.body}</p>
+          </article>
+        ))}
+      </section>
 
-        <section className="rounded-3xl border border-gray-200 bg-white p-8 shadow-sm">
-          <div className="grid gap-6 md:grid-cols-2">
-            <div>
-              <h2 className="text-2xl font-semibold text-gray-950">What this means in practice</h2>
-              <p className="mt-3 text-base leading-7 text-gray-600">
-                Learners get a complete tutoring product today: study tools, tutoring hints, persistent progress context, misconception-aware guidance, and governed adaptive scoring. What they do not get is unchecked autonomous planner behavior.
-              </p>
-            </div>
-            <div className="rounded-2xl bg-stone-50 p-5">
-              <dl className="space-y-4 text-sm text-gray-700">
-                <div className="flex items-start justify-between gap-4 border-b border-stone-200 pb-3">
-                  <dt className="font-medium text-gray-900">Adaptive tutoring</dt>
-                  <dd>Live</dd>
-                </div>
-                <div className="flex items-start justify-between gap-4 border-b border-stone-200 pb-3">
-                  <dt className="font-medium text-gray-900">Student-state memory</dt>
-                  <dd>Live</dd>
-                </div>
-                <div className="flex items-start justify-between gap-4 border-b border-stone-200 pb-3">
-                  <dt className="font-medium text-gray-900">Replay-based review</dt>
-                  <dd>Operational</dd>
-                </div>
-                <div className="flex items-start justify-between gap-4 border-b border-stone-200 pb-3">
-                  <dt className="font-medium text-gray-900">Adaptive shadow scoring</dt>
-                  <dd>Live in shadow mode</dd>
-                </div>
-                <div className="flex items-start justify-between gap-4">
-                  <dt className="font-medium text-gray-900">Autonomous planner authority</dt>
-                  <dd>Not live</dd>
-                </div>
-              </dl>
-            </div>
-          </div>
-        </section>
+      <section className="grid gap-6 lg:grid-cols-[1.05fr_0.95fr]">
+        <article className="rounded-3xl border border-emerald-200 bg-gradient-to-br from-emerald-50 via-white to-lime-50 p-6 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">What the tutor pays attention to</p>
+          <ul className="mt-4 space-y-3 text-sm leading-7 text-slate-700">
+            {signsTheTutorUses.map((item) => (
+              <li key={item} className="rounded-2xl border border-emerald-100 bg-white/90 px-4 py-3">
+                {item}
+              </li>
+            ))}
+          </ul>
+        </article>
 
-        <section className="flex flex-col items-center justify-between gap-4 rounded-3xl bg-gray-950 px-8 py-10 text-center text-white md:flex-row md:text-left">
-          <div className="max-w-2xl">
-            <h2 className="text-2xl font-semibold">Built for trust, not hidden adaptation</h2>
-            <p className="mt-3 text-base leading-7 text-gray-300">
-              QuickStud-E improves tutoring through measured rollout, replay visibility, and bounded control. That makes personalization more reliable without asking learners to accept a black-box authority model.
+        <article className="rounded-3xl border border-amber-200 bg-gradient-to-br from-amber-50 via-white to-orange-50 p-6 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-700">What it does not do</p>
+          <ul className="mt-4 space-y-3 text-sm leading-7 text-slate-700">
+            {whatItDoesNotDo.map((item) => (
+              <li key={item} className="rounded-2xl border border-amber-100 bg-white/90 px-4 py-3">
+                {item}
+              </li>
+            ))}
+          </ul>
+        </article>
+      </section>
+
+      <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">In practice</p>
+        <div className="mt-4 grid gap-4 md:grid-cols-3">
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <h2 className="text-base font-semibold text-slate-950">Before a session</h2>
+            <p className="mt-2 text-sm leading-7 text-slate-700">
+              The workspace can surface a suggested focus area and explain why it is showing up now.
             </p>
           </div>
-          <Link
-            href="/app"
-            className="rounded-full bg-white px-6 py-3 text-sm font-medium text-gray-950 hover:bg-gray-100"
-          >
-            Open study workspace
-          </Link>
-        </section>
-      </div>
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <h2 className="text-base font-semibold text-slate-950">During a session</h2>
+            <p className="mt-2 text-sm leading-7 text-slate-700">
+              Tutor help reacts to your own answer first, so the coaching can target confusion instead of replacing your attempt.
+            </p>
+          </div>
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <h2 className="text-base font-semibold text-slate-950">After a session</h2>
+            <p className="mt-2 text-sm leading-7 text-slate-700">
+              Reflection should tell you what improved, what still looks unstable, and what would make the next short session useful.
+            </p>
+          </div>
+        </div>
+      </section>
     </main>
   );
 }

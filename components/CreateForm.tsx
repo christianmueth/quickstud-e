@@ -61,7 +61,7 @@ export default function CreateForm() {
       const fileInput = form.querySelector<HTMLInputElement>('input[name="file"]');
       const pdfOrPptx = fileInput?.files?.[0];
       if (pdfOrPptx && pdfOrPptx.size > MAX_FILE_SIZE) {
-        throw new Error(`File too large (${(pdfOrPptx.size / 1024 / 1024).toFixed(1)}MB). Please keep files under 200MB.`);
+        throw new Error(`That file is too large (${(pdfOrPptx.size / 1024 / 1024).toFixed(1)}MB). Keep it under 200MB so your study set can be prepared reliably.`);
       }
 
       // Clear stale hidden fields from older attempts
@@ -86,18 +86,18 @@ export default function CreateForm() {
           // Upload docs via direct Blob upload to avoid Vercel request body limits (413)
           const sizeMB = f.size / (1024 * 1024);
           const sizeDisplay = sizeMB >= 1 ? `${sizeMB.toFixed(1)}MB` : `${(f.size / 1024).toFixed(0)}KB`;
-          toast.info(`Uploading document (${sizeDisplay})...`);
+          toast.info(`Preparing your study material (${sizeDisplay})...`);
           try {
             const blob = await uploadViaBlob(f, "doc");
             fd.append("docUrl", blob.url);
             fd.append("docName", f.name || "document");
-            toast.success("Document uploaded. Generating...");
+            toast.success("Study material ready. Building your guided set...");
           } catch (err: any) {
             console.warn("[Client] Blob doc upload failed:", err?.message || err);
             // If the doc is big, we cannot safely fall back to sending it through the API
             // (it will likely hit Vercel request size limits and 413).
             if (f.size > API_BODY_LIMIT) {
-              throw new Error("Document upload failed. Please retry (Blob upload is required for large files).");
+              throw new Error("We couldn't prepare that document. Please retry; large files need the upload step to finish first.");
             }
             fd.append("file", f);
           }
@@ -134,10 +134,10 @@ export default function CreateForm() {
           const sizeMB = videoFile.size / (1024 * 1024);
           const sizeKB = videoFile.size / 1024;
           const sizeDisplay = sizeMB >= 1 ? `${sizeMB.toFixed(1)}MB` : `${sizeKB.toFixed(0)}KB`;
-          toast.info(`Uploading audio (${sizeDisplay})...`);
+          toast.info(`Preparing your audio lesson (${sizeDisplay})...`);
           const blob = await uploadViaBlob(videoFile, "audio");
           fd.append("audioUrl", blob.url);
-          toast.success("Audio uploaded. Transcribing + generating...");
+          toast.success("Audio ready. Turning it into study guidance...");
         } else if (actualSize > API_BODY_LIMIT) {
           // Upload to Blob for large videos (direct client upload)
           const sizeMB = videoFile.size / (1024 * 1024);
@@ -153,18 +153,18 @@ export default function CreateForm() {
             display: sizeDisplay
           });
           
-          toast.info(`Uploading video (${sizeDisplay})...`);
+          toast.info(`Preparing your lesson video (${sizeDisplay})...`);
 
           const blob = await uploadViaBlob(videoFile, "video");
 
           fd.append("videoUrl", blob.url);
           fd.append("videoName", videoFile.name || "video.mp4");
-          toast.success("Video uploaded. Processing may take up to 5 minutes.");
+          toast.success("Video ready. Building study guidance may take a few minutes.");
         } else {
           // Small enough to send directly
           console.log("[Client] Video small enough, sending directly in request");
           fd.append("video", videoFile);
-          toast.info("Processing video (may take up to 5 minutes)...");
+          toast.info("Reviewing your video and building a guided set...");
         }
       }
 
@@ -172,7 +172,7 @@ export default function CreateForm() {
       if (contentType === "video") {
         // Already shown above for video
       } else {
-        toast.info("Processing...");
+        toast.info("Preparing your guided study material...");
       }
 
       // Route to the appropriate API based on mode
@@ -199,26 +199,26 @@ export default function CreateForm() {
         // RunPod serverless can queue jobs; when it doesn't start within our route timeout,
         // the API returns a retryable 503 instead of silently creating fallback content.
         if (res.status === 503 && j?.code === "RUNPOD_IN_QUEUE") {
-          toast.error(`AI is queued on RunPod (no capacity yet). Please retry in ~30–60 seconds.${tid ? ` (traceId: ${tid})` : ""}`);
+          toast.error(`Study generation is briefly queued. Please retry in about 30 to 60 seconds.${tid ? ` (traceId: ${tid})` : ""}`);
           return;
         }
 
         if (j?.code === "YT_URL_DISABLED") {
           toast.error(
-            `YouTube links aren’t supported right now. Please upload the audio/video file (mp3/m4a/mp4) or upload captions (.srt/.vtt).${tid ? ` (traceId: ${tid})` : ""}`
+            `YouTube links are not supported right now. Upload the audio or video file directly, or add captions instead.${tid ? ` (traceId: ${tid})` : ""}`
           );
           return;
         }
 
         if (j?.code === "SUPADATA_FAILED" || String(j?.code || "").startsWith("SUPADATA_")) {
           toast.error(
-            `Couldn’t fetch a transcript for that YouTube link. Try uploading the audio/video (mp3/m4a/mp4) or captions (.srt/.vtt).${tid ? ` (traceId: ${tid})` : ""}`
+            `We couldn't fetch a transcript for that YouTube link. Try uploading the audio, video, or captions directly instead.${tid ? ` (traceId: ${tid})` : ""}`
           );
           return;
         }
 
         if (res.status === 504) {
-          toast.error(`Timed out while generating. Please retry (RunPod can be slow/queued).${tid ? ` (traceId: ${tid})` : ""}`);
+          toast.error(`Preparing this study set took too long. Please retry in a moment.${tid ? ` (traceId: ${tid})` : ""}`);
           return;
         }
 
@@ -231,27 +231,27 @@ export default function CreateForm() {
         if (data.success && data.notes) {
           // Store notes in sessionStorage and redirect to a viewer page
           sessionStorage.setItem("latestStudyNotes", JSON.stringify(data));
-          toast.success("Study notes generated!");
+          toast.success("Your study overview is ready.");
           window.location.href = "/app/study-notes/view";
         } else {
-          throw new Error("Failed to generate study notes");
+          throw new Error("We couldn't prepare the study overview.");
         }
       } else {
         // For flashcards, use the existing redirect logic
         const location = res.headers.get("Location");
         if (location) {
-          toast.success("Deck created successfully!");
+          toast.success("Your guided review set is ready.");
           window.location.href = location;
         } else {
-          toast.success("Deck created");
+          toast.success("Your study set is ready.");
           window.location.reload();
         }
       }
     } catch (err: any) {
       if (err?.name === "AbortError") {
-        toast.error("This is taking too long. Please retry (or try a smaller file / upload audio instead of video). ");
+        toast.error("This is taking longer than expected. Please retry, or use a smaller file or direct audio upload.");
       } else {
-        toast.error(err?.message || "Network error");
+        toast.error(err?.message || "We couldn't prepare your study material right now.");
       }
     } finally {
       setPending(false);
@@ -262,7 +262,7 @@ export default function CreateForm() {
     <form onSubmit={handleSubmit} className="space-y-4">
       {/* Generation mode selector */}
       <div>
-        <label className="text-sm font-medium">What would you like to generate?</label>
+        <label className="text-sm font-medium">What would you like to build for this learning space?</label>
         <div className="mt-2 flex gap-3">
           <button
             type="button"
@@ -273,8 +273,8 @@ export default function CreateForm() {
                 : "bg-white text-gray-700 border-gray-300 hover:border-gray-400"
             }`}
           >
-            📇 Flashcards
-            <p className="text-xs mt-1 opacity-75">Study with spaced repetition</p>
+            📇 Guided review
+            <p className="text-xs mt-1 opacity-75">Build a guided review set</p>
           </button>
           <button
             type="button"
@@ -286,16 +286,16 @@ export default function CreateForm() {
             }`}
           >
             📝 Study Notes
-            <p className="text-xs mt-1 opacity-75">Overview with critical points</p>
+            <p className="text-xs mt-1 opacity-75">Build a study overview with key ideas</p>
           </button>
         </div>
       </div>
 
       <div>
-        <label className="text-sm font-medium">Title <span className="text-red-500">*</span></label>
+        <label className="text-sm font-medium">Learning space title <span className="text-red-500">*</span></label>
         <input 
           name="title" 
-          placeholder="My deck" 
+          placeholder="Photosynthesis review" 
           className="w-full border rounded p-2" 
           required 
           minLength={3}
@@ -303,30 +303,30 @@ export default function CreateForm() {
         />
       </div>
 
-      {/* Number of flashcards selector - only show for flashcards mode */}
+      {/* Guided-review size selector - only show for guided review mode */}
       {generationMode === "flashcards" && (
         <div>
-          <label className="text-sm font-medium">Number of flashcards</label>
+          <label className="text-sm font-medium">How much guided review do you want?</label>
           <select
             className="mt-1 w-full border rounded p-2 bg-white"
             value={cardCount}
             onChange={(e) => setCardCount(Number(e.target.value))}
           >
-            <option value={10}>10 cards</option>
-            <option value={15}>15 cards</option>
-            <option value={20}>20 cards (recommended)</option>
-            <option value={30}>30 cards</option>
-            <option value={50}>50 cards</option>
-            <option value={75}>75 cards</option>
-            <option value={100}>100 cards (slow)</option>
+            <option value={10}>10 prompts</option>
+            <option value={15}>15 prompts</option>
+            <option value={20}>20 prompts (recommended)</option>
+            <option value={30}>30 prompts</option>
+            <option value={50}>50 prompts</option>
+            <option value={75}>75 prompts</option>
+            <option value={100}>100 prompts (slower)</option>
           </select>
-          <p className="text-xs text-gray-500 mt-1">More cards = longer generation time and higher cost</p>
+          <p className="text-xs text-gray-500 mt-1">Longer review sets take more time to prepare.</p>
         </div>
       )}
 
       {/* Content type selector */}
       <div>
-        <label className="text-sm font-medium">Content type</label>
+        <label className="text-sm font-medium">Study material type</label>
         <select
           className="mt-1 w-full border rounded p-2 bg-white"
           value={contentType}
@@ -393,7 +393,7 @@ export default function CreateForm() {
             Paste
           </button>
         </div>
-        <p className="text-xs text-gray-500 mt-1">Paste a website URL. For videos, upload audio/video (mp3/m4a/mp4) or captions (.srt/.vtt).</p>
+        <p className="text-xs text-gray-500 mt-1">Paste a website URL. For videos, upload audio or video files, or add captions.</p>
       </div>
 
       {/* Text input */}
@@ -406,7 +406,7 @@ export default function CreateForm() {
             rows={6}
             value={text}
             onChange={(e) => setText(e.target.value)}
-            placeholder="Paste text here…"
+            placeholder="Paste study material here..."
             className="w-full border rounded p-2"
           />
           <div className="flex gap-2">
@@ -477,7 +477,7 @@ export default function CreateForm() {
             Clear
           </button>
         </div>
-        <p className="text-xs text-gray-500">Maximum file size: 200MB. For larger files, please extract and paste the text.</p>
+        <p className="text-xs text-gray-500">Maximum file size: 200MB. For larger files, paste the most important sections as text.</p>
       </div>
 
       {/* Subtitles */}
@@ -572,10 +572,10 @@ export default function CreateForm() {
 
       <button className="px-4 py-2 rounded bg-black text-white disabled:opacity-60" type="submit" disabled={pending}>
         {pending 
-          ? "Preparing…" 
+          ? "Preparing..." 
           : generationMode === "flashcards" 
-            ? "Generate Flashcards" 
-            : "Generate Study Notes"}
+            ? "Build guided review" 
+            : "Build study notes"}
       </button>
     </form>
   );

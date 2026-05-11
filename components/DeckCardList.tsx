@@ -15,14 +15,14 @@ export default function DeckCardList({ cards }: { cards: CardLite[] }) {
   return (
     <div className="space-y-3">
       <input
-        placeholder="Search cards…"
+        placeholder="Search study prompts..."
         value={q}
         onChange={(e) => setQ(e.target.value)}
         className="w-full border rounded p-2"
       />
       <div className="divide-y rounded border">
         {filtered.length === 0 ? (
-          <div className="p-6 text-sm text-gray-500">No matching cards.</div>
+          <div className="p-6 text-sm text-gray-500">No matching study prompts.</div>
         ) : (
           filtered.map((c) => <CardRow key={c.id} id={c.id} question={c.question} answer={c.answer} />)
         )}

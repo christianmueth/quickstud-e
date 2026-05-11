@@ -48,10 +48,10 @@ export default async function ProgressPage() {
     clerkUserId = authResult.userId;
   } catch (error) {
     console.error("[Progress] Auth error:", error);
-    return <StateMessage title="Authentication Error" body="Unable to authenticate this session. Check Clerk configuration before using the progress dashboard." tone="error" />;
+    return <StateMessage title="We couldn't restore your study session." body="Sign in again to continue reviewing your progress and guided study history." tone="error" />;
   }
 
-  if (!clerkUserId) redirect("/sign-in");
+  if (!clerkUserId) redirect(`/?next=${encodeURIComponent("/app/progress")}`);
 
   try {
     await prisma.user.upsert({
@@ -61,7 +61,7 @@ export default async function ProgressPage() {
     });
   } catch (error) {
     console.error("[Progress] Database error creating user:", error);
-    return <StateMessage title="Database Connection Error" body="Unable to connect to the database for progress data. Check the Prisma database configuration before continuing." tone="error" />;
+    return <StateMessage title="We couldn't load your progress right now." body="Your tutor history and recovery signals will appear again once the study data connection is back." tone="error" />;
   }
 
   let userRecord: {
@@ -101,7 +101,7 @@ export default async function ProgressPage() {
     studentStateUnavailable = /StudentState|relation .* does not exist|table .* does not exist/i.test(message);
     if (!studentStateUnavailable) {
       console.error("[Progress] Failed to load user progress state:", error);
-      return <StateMessage title="Progress Unavailable" body="The dashboard could not load user progress data right now." tone="error" />;
+      return <StateMessage title="Your progress view is temporarily unavailable." body="The tutor couldn't load your recent progress signals right now. Try again in a moment." tone="error" />;
     }
 
     userRecord = await prisma.user.findFirst({
@@ -118,7 +118,7 @@ export default async function ProgressPage() {
   }
 
   if (!userRecord) {
-    return <StateMessage title="Progress Not Ready" body="Your study profile has not been initialized yet. Start a session and return here once you have created or reviewed some study material." tone="empty" />;
+    return <StateMessage title="Your progress view will appear soon." body="Start a guided session and this space will begin tracking your learning patterns, recovery moments, and next study focus." tone="empty" />;
   }
 
   try {
@@ -170,7 +170,7 @@ export default async function ProgressPage() {
     reasoningRunsUnavailable = /ReasoningRun|relation .* does not exist|table .* does not exist/i.test(message);
     if (!reasoningRunsUnavailable) {
       console.error("[Progress] Failed to load reasoning runs:", error);
-      return <StateMessage title="Progress Unavailable" body="The dashboard could not load study analytics right now." tone="error" />;
+      return <StateMessage title="Your tutor read is temporarily unavailable." body="The progress view could not load your study analytics right now." tone="error" />;
     }
   }
 
@@ -211,15 +211,17 @@ export default async function ProgressPage() {
   const recentRecoveryNeeds = studentState?.recentFailures.slice(0, 4) || [];
   const recoveryTimeline = buildRecoveryTimeline(recentRuns);
   const recoverySummary = summarizeRecoveryTimeline(recoveryTimeline);
+  const tutorBrief = buildTutorBrief(studentState, analytics, recoverySummary);
+  const guidedSessionPlan = buildGuidedSessionPlan(studentState, recommendedTopics);
 
   return (
     <main className="mx-auto max-w-6xl space-y-8 px-6 py-8">
       <section className="flex flex-col gap-4 rounded-3xl border border-gray-200 bg-gradient-to-r from-sky-50 via-white to-emerald-50 p-8 lg:flex-row lg:items-end lg:justify-between">
         <div className="max-w-3xl space-y-3">
-          <p className="text-sm font-medium uppercase tracking-[0.18em] text-sky-700">Student progress</p>
-          <h1 className="text-3xl font-semibold tracking-tight text-gray-950 sm:text-4xl">Progress and recovery dashboard</h1>
+          <p className="text-sm font-medium uppercase tracking-[0.18em] text-sky-700">Tutor progress read</p>
+          <h1 className="text-3xl font-semibold tracking-tight text-gray-950 sm:text-4xl">What your tutor wants to reinforce next</h1>
           <p className="text-base leading-7 text-gray-600">
-            This dashboard shows study momentum, recurring misconceptions, recovery patterns, and the next topics to strengthen. It is designed for student visibility, not internal governance operations.
+            This view turns your recent study into a calm next-step read: where confidence is holding, where recovery is starting, and which concept is most worth another guided pass.
           </p>
         </div>
         <div className="flex flex-wrap gap-3">
@@ -238,6 +240,37 @@ export default async function ProgressPage() {
           {reasoningRunsUnavailable && "Reasoning-run analytics are not available yet in this environment. Apply the latest Prisma migration to unlock recent study trends and guidance patterns."}
         </section>
       )}
+
+      <section className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+        <div className="rounded-3xl border border-sky-200 bg-gradient-to-br from-sky-50 via-white to-cyan-50 p-6 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-700">Tutor read</p>
+          <h2 className="mt-3 text-2xl font-semibold tracking-tight text-gray-950">{tutorBrief.headline}</h2>
+          <p className="mt-3 text-sm leading-7 text-gray-700">{tutorBrief.body}</p>
+          <div className="mt-5 grid gap-3 md:grid-cols-3">
+            {tutorBrief.cues.map((cue) => (
+              <div key={cue} className="rounded-2xl border border-sky-100 bg-white/90 p-3 text-sm leading-6 text-gray-700">
+                {cue}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="rounded-3xl border border-emerald-200 bg-gradient-to-br from-emerald-50 via-white to-lime-50 p-6 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">Today's guided session</p>
+          <h2 className="mt-3 text-2xl font-semibold tracking-tight text-gray-950">{guidedSessionPlan.title}</h2>
+          <p className="mt-3 text-sm leading-7 text-gray-700">{guidedSessionPlan.description}</p>
+          <ol className="mt-5 space-y-3">
+            {guidedSessionPlan.steps.map((step, index) => (
+              <li key={step} className="flex items-start gap-3 rounded-2xl border border-emerald-100 bg-white/90 p-3 text-sm leading-6 text-gray-700">
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-600 text-xs font-semibold text-white">
+                  {index + 1}
+                </span>
+                <span>{step}</span>
+              </li>
+            ))}
+          </ol>
+        </div>
+      </section>
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <MetricCard label="Current study streak" value={`${userRecord.studyStreak} day${userRecord.studyStreak === 1 ? "" : "s"}`} detail="Consistency matters more than raw session length." tone="sky" />
@@ -608,6 +641,72 @@ function buildMisconceptionCards(
   }));
 
   return dedupeByTitle([...fromAnalytics, ...fromState]).slice(0, 4);
+}
+
+function buildTutorBrief(
+  studentState: ReturnType<typeof formatStudentState> | null,
+  analytics: ReturnType<typeof summarizeReasoningRuns> | null,
+  recoverySummary: string | null
+) {
+  const weakConcept = studentState?.weakConcepts[0];
+  const misconception = analytics?.byMisconception[0]?.category || studentState?.misconceptionPatterns[0] || null;
+  const lowConfidenceStreak = studentState?.pacingProfile.lowConfidenceStreak ?? 0;
+  const recentWin = studentState?.recentSuccesses[0] || null;
+  const preferredStyle = studentState?.preferredExplanationStyle || null;
+
+  const headline = weakConcept
+    ? `Let's reinforce ${titleCase(weakConcept)} before you move on.`
+    : recentWin
+      ? "You are building real recovery momentum."
+      : "Your tutor is watching for the next concept to stabilize.";
+
+  const body = recoverySummary
+    ? `${recoverySummary} ${weakConcept ? `Right now the biggest leverage point is ${titleCase(weakConcept)}, because it is still showing up in your recent learning memory.` : "The next step is to keep your study sessions short, targeted, and consistent so the system can refine what works best for you."}`
+    : weakConcept
+      ? `You have recent signals around ${titleCase(weakConcept)}, so the best session today is a short targeted review with quick checks rather than broad deck browsing.`
+      : "The tutor does not yet have enough recovery evidence to make a strong intervention call, so the next best move is another focused study session with answer-first coaching.";
+
+  const cues = [
+    misconception
+      ? `Most common recent difficulty: ${humanizeMisconceptionCategory(misconception)}.`
+      : "No dominant misconception has taken over your recent study history yet.",
+    lowConfidenceStreak > 0
+      ? `You are on a ${lowConfidenceStreak}-session low-confidence streak, so slower step-by-step support is likely to help.`
+      : "Confidence has not shown a prolonged dip recently, so you can keep pushing with normal pacing.",
+    preferredStyle
+      ? `The tutor is currently leaning toward ${preferredStyle.toLowerCase()} explanations because that style has matched your recent behavior best.`
+      : recentWin
+        ? `Recent recovery win: ${trimText(recentWin, 92)}`
+        : "As you complete more coached sessions, the tutor will personalize explanation style more aggressively.",
+  ];
+
+  return { headline, body, cues };
+}
+
+function buildGuidedSessionPlan(
+  studentState: ReturnType<typeof formatStudentState> | null,
+  recommendedTopics: Array<{ title: string; reason: string }>
+) {
+  const weakConcept = studentState?.weakConcepts[0];
+  const recentFailure = studentState?.recentFailures[0];
+  const recentSuccess = studentState?.recentSuccesses[0];
+  const nextTopic = recommendedTopics[0];
+
+  return {
+    title: weakConcept ? `Focus on ${titleCase(weakConcept)}` : nextTopic?.title || "Run a guided recovery pass",
+    description: nextTopic?.reason || "Use a short, guided session to reinforce the concept most likely to improve your next tutoring run.",
+    steps: [
+      weakConcept
+        ? `Start with ${titleCase(weakConcept)} and explain the answer in your own words before flipping the card.`
+        : "Start with the first recommended concept and answer before revealing the solution.",
+      recentFailure
+        ? `Spend one extra coaching pass on this unstable area: ${trimText(recentFailure, 96)}`
+        : "When confidence drops, ask for a hint instead of guessing repeatedly.",
+      recentSuccess
+        ? `Finish by revisiting a recent win to lock in momentum: ${trimText(recentSuccess, 96)}`
+        : "End the session with one concept that now feels easier so the tutor can track recovery, not just struggle.",
+    ],
+  };
 }
 
 function buildRecoveryTimeline(runs: RecentRunRow[]) {

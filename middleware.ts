@@ -5,6 +5,7 @@ import { NextResponse } from "next/server";
 // You can extend this list with other public paths as needed
 const isPublicRoute = createRouteMatcher([
   "/",
+  "/how-adaptive-guidance-works(.*)",
   "/sign-in(.*)",
   "/sign-up(.*)",
   "/api/transcribe(.*)",
@@ -42,7 +43,12 @@ export default clerkMiddleware(async (auth, request) => {
   }
 
   if (!isPublicRoute(request)) {
-    await auth.protect();
+    const { userId } = await auth();
+    if (!userId) {
+      const url = new URL("/", request.url);
+      url.searchParams.set("next", `${request.nextUrl.pathname}${request.nextUrl.search}`);
+      return NextResponse.redirect(url);
+    }
   }
 
   return response;

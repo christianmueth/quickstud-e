@@ -9,23 +9,23 @@ export default function DeleteCardButton({ cardId }: { cardId: string }) {
 
   async function onDelete() {
     if (busy) return;
-    if (!confirm("Delete this card?")) return;
+    if (!confirm("Remove this study prompt?")) return;
 
     setBusy(true);
     try {
       const res = await fetch(`/api/card/${cardId}`, { method: "DELETE" });
-      if (!res.ok) throw new Error("Delete failed");
-      toast.success("Card deleted");
+      if (!res.ok) throw new Error("We couldn't remove this study prompt.");
+      toast.success("Study prompt removed");
       router.refresh(); // ✅ re-renders the server page without a function prop
     } catch (e: any) {
-      toast.error(e?.message || "Delete failed");
+      toast.error(e?.message || "We couldn't remove this study prompt.");
       setBusy(false);
     }
   }
 
   return (
     <button className="text-sm px-2 py-1 rounded bg-gray-200 hover:bg-gray-300" onClick={onDelete} disabled={busy}>
-      {busy ? "…" : "Delete"}
+      {busy ? "Removing..." : "Remove"}
     </button>
   );
 }

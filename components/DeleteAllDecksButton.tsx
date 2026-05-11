@@ -21,14 +21,14 @@ export default function DeleteAllDecksButton() {
       });
 
       if (!response.ok) {
-        throw new Error('Failed to delete decks');
+        throw new Error('We could not remove your learning spaces.');
       }
 
       // Refresh the page to show the changes
       router.refresh();
     } catch (error) {
       console.error('Error deleting decks:', error);
-      alert('Failed to delete decks');
+      alert('We could not remove your learning spaces.');
     } finally {
       setIsDeleting(false);
       setIsConfirming(false);
@@ -46,10 +46,10 @@ export default function DeleteAllDecksButton() {
       } disabled:opacity-50`}
     >
       {isDeleting
-        ? 'Deleting...'
+        ? 'Removing...'
         : isConfirming
-        ? 'Click again to confirm'
-        : 'Delete All Decks'}
+        ? 'Click again to confirm removal'
+        : 'Remove all study sets'}
     </button>
   );
 }

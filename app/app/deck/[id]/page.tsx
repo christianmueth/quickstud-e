@@ -19,10 +19,10 @@ export default async function DeckPage({
   params: Promise<{ id: string }>;
   searchParams: Promise<{ concept?: string; reason?: string; source?: string }>;
 }) {
-  const { userId } = await auth();
-  if (!userId) return notFound();
-
   const { id } = await params; // Next 15: await params
+  const { userId } = await auth();
+  if (!userId) redirect(`/?next=${encodeURIComponent(`/app/deck/${id}`)}`);
+
   const resolvedSearchParams = await searchParams;
   const focusConcept = cleanQueryValue(resolvedSearchParams.concept);
   const focusReason = cleanQueryValue(resolvedSearchParams.reason);
@@ -46,7 +46,8 @@ export default async function DeckPage({
       </div>
 
       <section className="space-y-3">
-        <h2 className="text-lg font-semibold">Study</h2>
+        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Study</p>
+        <h2 className="text-lg font-semibold">Guided session</h2>
         <StudyCarousel
           deckId={deck.id}
           focusConcept={focusConcept}
@@ -56,7 +57,8 @@ export default async function DeckPage({
       </section>
 
       <section className="space-y-3">
-        <h2 className="text-lg font-semibold">Manage cards</h2>
+        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Library</p>
+        <h2 className="text-lg font-semibold">Add or refine study material</h2>
         <AddCardForm deckId={deck.id} />
         <DeckCardList cards={deck.cards} />
       </section>

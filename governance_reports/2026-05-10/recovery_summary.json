@@ -1,0 +1,301 @@
+{
+  "exportedAt": "2026-05-10T20:50:45.310Z",
+  "totalExamples": 500,
+  "recoveredCount": 217,
+  "stabilizedCount": 95,
+  "averageReward": 0.041,
+  "averageConfidenceDelta": 0.063,
+  "classBalance": {
+    "recoveredCount": 217,
+    "stabilizedCount": 95,
+    "unrecoveredCount": 283,
+    "recoveryRate": 0.434,
+    "stabilizationRate": 0.19
+  },
+  "rewardDistribution": {
+    "count": 500,
+    "min": -1.344,
+    "max": 2.25,
+    "mean": 0.041,
+    "stddev": 1.431,
+    "p10": -1.252,
+    "p25": -1.187,
+    "p50": -1.13,
+    "p75": 1.32,
+    "p90": 2.107,
+    "histogram": [
+      {
+        "start": -1.344,
+        "end": -0.895,
+        "count": 283
+      },
+      {
+        "start": -0.895,
+        "end": -0.445,
+        "count": 0
+      },
+      {
+        "start": -0.445,
+        "end": 0.004,
+        "count": 0
+      },
+      {
+        "start": 0.004,
+        "end": 0.453,
+        "count": 0
+      },
+      {
+        "start": 0.453,
+        "end": 0.902,
+        "count": 0
+      },
+      {
+        "start": 0.902,
+        "end": 1.352,
+        "count": 122
+      },
+      {
+        "start": 1.352,
+        "end": 1.801,
+        "count": 0
+      },
+      {
+        "start": 1.801,
+        "end": 2.25,
+        "count": 95
+      }
+    ]
+  },
+  "confidenceDeltaDistribution": {
+    "count": 500,
+    "min": -0.244,
+    "max": 0.5,
+    "mean": 0.063,
+    "stddev": 0.193,
+    "p10": -0.152,
+    "p25": -0.087,
+    "p50": -0.03,
+    "p75": 0.22,
+    "p90": 0.357,
+    "histogram": [
+      {
+        "start": -0.244,
+        "end": -0.151,
+        "count": 52
+      },
+      {
+        "start": -0.151,
+        "end": -0.058,
+        "count": 108
+      },
+      {
+        "start": -0.058,
+        "end": 0.035,
+        "count": 123
+      },
+      {
+        "start": 0.035,
+        "end": 0.128,
+        "count": 27
+      },
+      {
+        "start": 0.128,
+        "end": 0.221,
+        "count": 65
+      },
+      {
+        "start": 0.221,
+        "end": 0.314,
+        "count": 51
+      },
+      {
+        "start": 0.314,
+        "end": 0.407,
+        "count": 49
+      },
+      {
+        "start": 0.407,
+        "end": 0.5,
+        "count": 25
+      }
+    ]
+  },
+  "misconceptionSkew": {
+    "uniqueCount": 8,
+    "top1Share": 0.194,
+    "top3Share": 0.552,
+    "entries": [
+      {
+        "label": "CONCEPTUAL_CONFUSION",
+        "count": 97,
+        "share": 0.194
+      },
+      {
+        "label": "SKIPPED_STEP",
+        "count": 92,
+        "share": 0.184
+      },
+      {
+        "label": "FALSE_ASSUMPTION",
+        "count": 87,
+        "share": 0.174
+      },
+      {
+        "label": "SIGN_ERROR",
+        "count": 81,
+        "share": 0.162
+      },
+      {
+        "label": "UNIT_ERROR",
+        "count": 76,
+        "share": 0.152
+      },
+      {
+        "label": "MEMORIZATION_FAILURE",
+        "count": 75,
+        "share": 0.15
+      },
+      {
+        "label": "ARITHMETIC_ERROR",
+        "count": 71,
+        "share": 0.142
+      },
+      {
+        "label": "OVERGENERALIZATION",
+        "count": 66,
+        "share": 0.132
+      }
+    ]
+  },
+  "strategyImbalance": {
+    "uniqueCount": 5,
+    "top1Share": 0.24,
+    "top3Share": 0.686,
+    "entries": [
+      {
+        "label": "worked_example",
+        "count": 120,
+        "share": 0.24
+      },
+      {
+        "label": "concept_reframe",
+        "count": 113,
+        "share": 0.226
+      },
+      {
+        "label": "targeted_hint",
+        "count": 110,
+        "share": 0.22
+      },
+      {
+        "label": "error_localization",
+        "count": 94,
+        "share": 0.188
+      },
+      {
+        "label": "retrieval_prompt",
+        "count": 63,
+        "share": 0.126
+      }
+    ]
+  },
+  "dataWarnings": [],
+  "byMisconception": [
+    {
+      "category": "CONCEPTUAL_CONFUSION",
+      "examples": 97,
+      "recoveryRate": 0.381,
+      "stabilizationRate": 0.165,
+      "averageReward": -0.117,
+      "averageConfidenceDelta": 0.037
+    },
+    {
+      "category": "SKIPPED_STEP",
+      "examples": 92,
+      "recoveryRate": 0.38,
+      "stabilizationRate": 0.185,
+      "averageReward": -0.091,
+      "averageConfidenceDelta": 0.052
+    },
+    {
+      "category": "FALSE_ASSUMPTION",
+      "examples": 87,
+      "recoveryRate": 0.379,
+      "stabilizationRate": 0.138,
+      "averageReward": -0.131,
+      "averageConfidenceDelta": 0.045
+    },
+    {
+      "category": "SIGN_ERROR",
+      "examples": 81,
+      "recoveryRate": 0.469,
+      "stabilizationRate": 0.185,
+      "averageReward": 0.121,
+      "averageConfidenceDelta": 0.069
+    },
+    {
+      "category": "UNIT_ERROR",
+      "examples": 76,
+      "recoveryRate": 0.395,
+      "stabilizationRate": 0.197,
+      "averageReward": -0.051,
+      "averageConfidenceDelta": 0.052
+    },
+    {
+      "category": "MEMORIZATION_FAILURE",
+      "examples": 75,
+      "recoveryRate": 0.48,
+      "stabilizationRate": 0.16,
+      "averageReward": 0.137,
+      "averageConfidenceDelta": 0.077
+    },
+    {
+      "category": "ARITHMETIC_ERROR",
+      "examples": 71,
+      "recoveryRate": 0.507,
+      "stabilizationRate": 0.268,
+      "averageReward": 0.283,
+      "averageConfidenceDelta": 0.094
+    },
+    {
+      "category": "OVERGENERALIZATION",
+      "examples": 66,
+      "recoveryRate": 0.394,
+      "stabilizationRate": 0.167,
+      "averageReward": -0.068,
+      "averageConfidenceDelta": 0.057
+    }
+  ],
+  "byStrategy": [
+    {
+      "strategy": "worked_example",
+      "examples": 120,
+      "recoveryRate": 0.417,
+      "averageReward": -0.025
+    },
+    {
+      "strategy": "concept_reframe",
+      "examples": 113,
+      "recoveryRate": 0.345,
+      "averageReward": -0.234
+    },
+    {
+      "strategy": "targeted_hint",
+      "examples": 110,
+      "recoveryRate": 0.509,
+      "averageReward": 0.27
+    },
+    {
+      "strategy": "error_localization",
+      "examples": 94,
+      "recoveryRate": 0.457,
+      "averageReward": 0.133
+    },
+    {
+      "strategy": "retrieval_prompt",
+      "examples": 63,
+      "recoveryRate": 0.46,
+      "averageReward": 0.128
+    }
+  ]
+}
