@@ -252,6 +252,8 @@ function normalizeScenario(run) {
   const candidateStrategies = toArray(metadata.candidateStrategies).map(toRecord);
   const oracleOutcomes = toArray(metadata.oracleStrategyOutcomes).map(toRecord);
   const heuristicPolicy = toRecord(metadata.heuristicPolicy);
+  const worldModel = toRecord(metadata.worldModel);
+  const selectedTransition = toRecord(worldModel.selectedTransition);
   if (!candidateStrategies.length || !oracleOutcomes.length) return null;
 
   const state = {
@@ -276,6 +278,16 @@ function normalizeScenario(run) {
       prior_recovery_rate: toNumber(toRecord(metadata.longitudinalState).priorRecoveryRate),
       recent_strategy_success_rate: toNumber(toRecord(metadata.longitudinalState).recentStrategySuccessRate),
       recent_strategy_counts: toRecord(toRecord(metadata.longitudinalState).recentStrategyCounts),
+    },
+    world_model: {
+      version: toNullableString(worldModel.version),
+      projected_confidence_delta: toNumber(selectedTransition.projectedConfidenceDelta),
+      projected_recovery_probability: toNumber(selectedTransition.projectedRecoveryProbability),
+      projected_stability_gain: toNumber(selectedTransition.projectedStabilityGain),
+      projected_low_confidence_risk: toNumber(selectedTransition.projectedLowConfidenceRisk),
+      projected_next_weak_topics: toStringArray(selectedTransition.projectedNextWeakTopics),
+      projected_next_misconceptions: toStringArray(selectedTransition.projectedNextMisconceptions),
+      explanation: toNullableString(selectedTransition.explanation),
     },
   };
 
@@ -354,6 +366,7 @@ function numericFeatures(example) {
   const state = example.state || {};
   const studentState = state.student_state || {};
   const longitudinalState = state.longitudinal_state || {};
+  const worldModel = state.world_model || {};
   const action = example.action || {};
   const retentionProfile = studentState.retention_profile || {};
   const confidenceProfile = studentState.confidence_profile || {};
@@ -382,21 +395,29 @@ function numericFeatures(example) {
     ["num:recent_strategy_success_rate", toNumber(longitudinalState.recent_strategy_success_rate)],
     ["num:strategy_attempts_mean", meanNestedRecord(strategyHistory, "attempts")],
     ["num:strategy_history_success_mean", meanNestedRecord(strategyHistory, "successRate")],
+    ["num:wm_projected_confidence_delta", toNumber(worldModel.projected_confidence_delta)],
+    ["num:wm_projected_recovery_probability", toNumber(worldModel.projected_recovery_probability)],
+    ["num:wm_projected_stability_gain", toNumber(worldModel.projected_stability_gain)],
+    ["num:wm_projected_low_confidence_risk", toNumber(worldModel.projected_low_confidence_risk)],
   ];
 }
 
 function categoricalFeatures(example) {
   const state = example.state || {};
   const studentState = state.student_state || {};
+  const worldModel = state.world_model || {};
   const action = example.action || {};
   const features = [];
   for (const misconception of toStringArray(state.misconception_signals)) features.push(`misconception=${misconception}`);
   for (const misconception of toStringArray(studentState.misconception_patterns)) features.push(`pattern=${misconception}`);
   for (const topic of toStringArray(state.weak_topic_matches)) features.push(`weak_topic=${topic}`);
   for (const concept of toStringArray(studentState.weak_concepts)) features.push(`weak_concept=${concept}`);
+  for (const topic of toStringArray(worldModel.projected_next_weak_topics)) features.push(`wm_next_weak=${topic}`);
+  for (const misconception of toStringArray(worldModel.projected_next_misconceptions)) features.push(`wm_next_misconception=${misconception}`);
   if (action.strategy_type) features.push(`strategy=${action.strategy_type}`);
   if (action.strategy_mode) features.push(`strategy_mode=${action.strategy_mode}`);
   if (studentState.preferred_explanation_style) features.push(`style=${studentState.preferred_explanation_style}`);
+  if (worldModel.version) features.push(`world_model=${worldModel.version}`);
   const pacing = studentState.pacing_profile?.preferredSpeed;
   if (typeof pacing === "string" && pacing.trim()) features.push(`pacing=${pacing}`);
   const volatilityBand = studentState.pacing_profile?.confidenceVolatilityBand;
@@ -546,10 +567,6 @@ function predictBoostedValue(model, vector) {
   let prediction = model.baseValue;
   for (const tree of model.trees) prediction += model.learningRate * predictTreeProbability(tree, vector);
   return prediction;
-}
-
-function printPolicyMetrics(label, metrics) {
-  console.log(`  ${label}: avg_delta=${metrics.averageSelectedDelta} regret=${metrics.averageRegret} disagreement=${metrics.disagreementRate} helpful_flips=${metrics.helpfulFlips} harmful_flips=${metrics.harmfulFlips}`);
 }
 
 function printPolicySummary(label, summary, heuristicSummary, topK) {

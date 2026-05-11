@@ -139,6 +139,8 @@ function toDatasetExample(run, options) {
   const adaptivePolicy = toRecord(metadata.adaptivePolicy);
   const verification = toRecord(metadata.verification);
   const studentState = toRecord(metadata.studentState);
+  const worldModel = toRecord(metadata.worldModel);
+  const selectedTransition = toRecord(worldModel.selectedTransition);
   const candidateScores = toArray(adaptivePolicy.candidateScores).map(toRecord);
   const selectedCandidates = toArray(metadata.selectedStrategy).length ? toArray(metadata.selectedStrategy) : [];
 
@@ -167,6 +169,16 @@ function toDatasetExample(run, options) {
       misconception_signals: toStringArray(metadata.misconceptionSignals),
       weak_topic_matches: toStringArray(metadata.weakTopicMatches),
       verification_confidence: toNumber(verification.confidence),
+      world_model: {
+        version: toNullableString(worldModel.version),
+        projected_confidence_delta: toNumber(selectedTransition.projectedConfidenceDelta),
+        projected_recovery_probability: toNumber(selectedTransition.projectedRecoveryProbability),
+        projected_stability_gain: toNumber(selectedTransition.projectedStabilityGain),
+        projected_low_confidence_risk: toNumber(selectedTransition.projectedLowConfidenceRisk),
+        projected_next_weak_topics: toStringArray(selectedTransition.projectedNextWeakTopics),
+        projected_next_misconceptions: toStringArray(selectedTransition.projectedNextMisconceptions),
+        explanation: toNullableString(selectedTransition.explanation),
+      },
       student_state: {
         weak_concepts: toStringArray(studentState.weakConcepts),
         misconception_patterns: toStringArray(studentState.misconceptionPatterns),
@@ -220,6 +232,8 @@ function buildSummary(examples) {
   const abstentionCount = examples.filter((example) => example.adaptive.abstained).length;
   const overrideCount = examples.filter((example) => example.adaptive.override_applied).length;
   const margins = examples.map((example) => example.adaptive.top_two_margin);
+  const worldModelRecovery = examples.map((example) => example.state.world_model.projected_recovery_probability);
+  const worldModelStability = examples.map((example) => example.state.world_model.projected_stability_gain);
   const byMisconception = new Map();
   const byEffectiveStrategy = new Map();
   const byShift = new Map();
@@ -255,6 +269,8 @@ function buildSummary(examples) {
     overrideRate: rate(overrideCount, examples.length),
     abstentionShareOfDisagreements: disagreementCount ? round3(abstentionCount / disagreementCount) : 0,
     scoreMargin: summarizeNumericDistribution(margins),
+    worldModelRecovery: summarizeNumericDistribution(worldModelRecovery),
+    worldModelStability: summarizeNumericDistribution(worldModelStability),
     misconceptionSkew,
     strategySkew,
     topShiftShare,
@@ -270,6 +286,7 @@ function buildSummary(examples) {
       misconceptionSkew,
       strategySkew,
       topShiftShare,
+      worldModelRecovery: summarizeNumericDistribution(worldModelRecovery),
     }),
   };
 }
@@ -328,7 +345,7 @@ function summarizeSkew(countMap, totalExamples) {
   };
 }
 
-function buildWarnings({ totalExamples, disagreementRate, abstentionShareOfDisagreements, scoreMargin, misconceptionSkew, strategySkew, topShiftShare }) {
+function buildWarnings({ totalExamples, disagreementRate, abstentionShareOfDisagreements, scoreMargin, misconceptionSkew, strategySkew, topShiftShare, worldModelRecovery }) {
   const warnings = [];
   if (totalExamples < 50) warnings.push(`Shadow sample is small (${totalExamples} examples); disagreement geometry may still be unstable.`);
   if (disagreementRate > 0.15) warnings.push(`Disagreement rate is elevated at ${disagreementRate}; inspect replay before granting authority.`);
@@ -337,6 +354,7 @@ function buildWarnings({ totalExamples, disagreementRate, abstentionShareOfDisag
   if (misconceptionSkew.top1Share >= 0.6) warnings.push(`Misconception concentration is high (top bucket ${misconceptionSkew.top1Share}).`);
   if (strategySkew.top1Share >= 0.7) warnings.push(`Effective strategy concentration is high (top strategy ${strategySkew.top1Share}).`);
   if (topShiftShare >= 0.75) warnings.push(`One disagreement shift dominates (${topShiftShare}); inspect for local pathology.`);
+  if (worldModelRecovery.mean === 0) warnings.push("World-model recovery projections are missing from adaptive shadow exports.");
   return warnings;
 }
 

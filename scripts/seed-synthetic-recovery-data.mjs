@@ -160,6 +160,47 @@ function buildSyntheticRun({ index, rng, userId, deckId, deckTitle }) {
       confidenceDelta: round3(candidatePostReviewConfidence - priorConfidence),
     };
   });
+  const worldModelCandidateTransitions = candidateStrategies.map((candidate) => {
+    const candidateOutcome = candidateOutcomes.find((item) => item.strategyId === candidate.id);
+    const projectedConfidenceDelta = round3(toNumber(candidateOutcome?.confidenceDelta));
+    const projectedRecoveryProbability = round3(clamp(
+      candidateOutcome?.recovered
+        ? 0.58 + rng() * 0.28
+        : 0.18 + rng() * 0.3,
+      0,
+      1,
+    ));
+    const projectedStabilityGain = round3(clamp(
+      candidateOutcome?.stabilized
+        ? 0.56 + rng() * 0.28
+        : candidateOutcome?.recovered
+          ? 0.34 + rng() * 0.22
+          : 0.12 + rng() * 0.22,
+      0,
+      1,
+    ));
+    const projectedLowConfidenceRisk = round3(clamp(
+      (1 - priorConfidence) * 0.55 + (1 - profile.retentionStrength) * 0.2 + (1 - projectedRecoveryProbability) * 0.25,
+      0,
+      1,
+    ));
+    return {
+      strategyId: candidate.id,
+      projectedConfidenceDelta,
+      projectedRecoveryProbability,
+      projectedStabilityGain,
+      projectedLowConfidenceRisk,
+      projectedNextWeakTopics: projectedStabilityGain >= 0.58 ? weakTopicMatches.slice(1) : weakTopicMatches,
+      projectedNextMisconceptions: projectedRecoveryProbability >= 0.62 ? misconceptionSignals.slice(1) : misconceptionSignals,
+      explanation: buildSyntheticWorldModelExplanation({
+        candidate,
+        topic,
+        primaryMisconception,
+        projectedRecoveryProbability,
+        projectedStabilityGain,
+      }),
+    };
+  });
   const heuristicWinner = candidateStrategies
     .map((candidate) => ({ candidate, outcome: candidateOutcomes.find((item) => item.strategyId === candidate.id) }))
     .sort((left, right) => right.candidate.score - left.candidate.score || right.candidate.confidence - left.candidate.confidence)[0];
@@ -176,6 +217,7 @@ function buildSyntheticRun({ index, rng, userId, deckId, deckTitle }) {
   const recentSuccesses = buildRecentSuccesses(topic, outcome.recovered, profile.mastery, rng);
   const strategyHistory = buildStrategyHistory(strategy.strategyType, profile, rng);
   const oracleBestOutcome = [...candidateOutcomes].sort((left, right) => right.confidenceDelta - left.confidenceDelta || Number(right.stabilized) - Number(left.stabilized))[0] || null;
+  const selectedWorldModelTransition = worldModelCandidateTransitions.find((item) => item.strategyId === strategy.id) || worldModelCandidateTransitions[0] || null;
 
   return {
     userId,
@@ -255,6 +297,18 @@ function buildSyntheticRun({ index, rng, userId, deckId, deckTitle }) {
         selected: candidate.id === strategy.id,
       })),
       oracleStrategyOutcomes: candidateOutcomes,
+      worldModel: {
+        version: "world_model_shadow_v1",
+        currentState: {
+          weakTopics: weakTopicMatches,
+          activeMisconceptions: misconceptionSignals,
+          overallConfidence: priorConfidence,
+          retentionStrength: profile.retentionStrength,
+          lowConfidenceRisk: round3(clamp((1 - priorConfidence) * 0.7 + (1 - profile.retentionStrength) * 0.3, 0, 1)),
+        },
+        selectedTransition: selectedWorldModelTransition,
+        candidateTransitions: worldModelCandidateTransitions,
+      },
       heuristicPolicy: {
         policyVersion: "synthetic_v1",
         selectedStrategyId: strategy.id,
@@ -344,9 +398,15 @@ function computePostReviewConfidence(priorConfidence, outcome, rng) {
   return round3(clamp(priorConfidence + 0.05 + rng() * 0.18, 0.32, 0.86));
 }
 
-function pickStrategiesForScenario(misconception, profile, rng) {
-  const candidates = buildCandidateStrategiesForScenario(misconception, profile, rng);
-  return pick(candidates, rng);
+function buildSyntheticWorldModelExplanation({ candidate, topic, primaryMisconception, projectedRecoveryProbability, projectedStabilityGain }) {
+  const misconception = humanize(primaryMisconception).toLowerCase();
+  if (projectedRecoveryProbability >= 0.68) {
+    return `${candidate.label} is projected to recover ${topic} well because it matches ${misconception} without overloading the learner.`;
+  }
+  if (projectedStabilityGain >= 0.52) {
+    return `${candidate.label} is projected to stabilize ${topic}, but another revisit may still be needed before ${misconception} fully clears.`;
+  }
+  return `${candidate.label} may keep progress moving, but low-confidence risk remains elevated around ${topic}.`;
 }
 
 function buildCandidateStrategiesForScenario(misconception, profile, rng) {

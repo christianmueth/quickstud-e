@@ -125,6 +125,8 @@ function toDatasetExample(run, options) {
   const verification = toRecord(metadata.verification);
   const studentState = toRecord(metadata.studentState);
   const longitudinalState = toRecord(metadata.longitudinalState);
+  const worldModel = toRecord(metadata.worldModel);
+  const selectedTransition = toRecord(worldModel.selectedTransition);
   const misconceptionSignals = toStringArray(metadata.misconceptionSignals);
   const weakTopicMatches = toStringArray(metadata.weakTopicMatches);
   const priorConfidence = toNumber(metadata.priorConfidence);
@@ -161,6 +163,16 @@ function toDatasetExample(run, options) {
         recent_strategy_success_rate: toNumber(longitudinalState.recentStrategySuccessRate),
         recent_strategy_counts: toRecord(longitudinalState.recentStrategyCounts),
       },
+      world_model: {
+        version: toNullableString(worldModel.version),
+        projected_confidence_delta: toNumber(selectedTransition.projectedConfidenceDelta),
+        projected_recovery_probability: toNumber(selectedTransition.projectedRecoveryProbability),
+        projected_stability_gain: toNumber(selectedTransition.projectedStabilityGain),
+        projected_low_confidence_risk: toNumber(selectedTransition.projectedLowConfidenceRisk),
+        projected_next_weak_topics: toStringArray(selectedTransition.projectedNextWeakTopics),
+        projected_next_misconceptions: toStringArray(selectedTransition.projectedNextMisconceptions),
+        explanation: toNullableString(selectedTransition.explanation),
+      },
     },
     action: {
       strategy_label: toNullableString(selectedStrategy.label),
@@ -194,11 +206,15 @@ function buildSummary(examples) {
   const byStrategy = new Map();
   const rewards = [];
   const confidenceDeltas = [];
+  const worldModelRecoveryProbabilities = [];
+  const worldModelStabilityGains = [];
   let unlabeledExamples = 0;
 
   for (const example of examples) {
     rewards.push(example.target.reward);
     confidenceDeltas.push(example.target.confidence_delta);
+    worldModelRecoveryProbabilities.push(example.state.world_model.projected_recovery_probability);
+    worldModelStabilityGains.push(example.state.world_model.projected_stability_gain);
     if (!example.state.misconception_signals.length) unlabeledExamples += 1;
 
     for (const category of example.state.misconception_signals) {
@@ -231,6 +247,8 @@ function buildSummary(examples) {
 
   const rewardDistribution = summarizeNumericDistribution(rewards);
   const confidenceDeltaDistribution = summarizeNumericDistribution(confidenceDeltas);
+  const worldModelRecoveryDistribution = summarizeNumericDistribution(worldModelRecoveryProbabilities);
+  const worldModelStabilityDistribution = summarizeNumericDistribution(worldModelStabilityGains);
   const misconceptionSkew = summarizeSkew(byMisconception, examples.length);
   const strategyImbalance = summarizeSkew(byStrategy, examples.length);
   const dataWarnings = buildWarnings({
@@ -238,6 +256,7 @@ function buildSummary(examples) {
     classBalance,
     rewardDistribution,
     confidenceDeltaDistribution,
+    worldModelRecoveryDistribution,
     misconceptionSkew,
     strategyImbalance,
     unlabeledRate: rate(unlabeledExamples, examples.length),
@@ -253,6 +272,8 @@ function buildSummary(examples) {
     classBalance,
     rewardDistribution,
     confidenceDeltaDistribution,
+    worldModelRecoveryDistribution,
+    worldModelStabilityDistribution,
     misconceptionSkew,
     strategyImbalance,
     dataWarnings,
@@ -311,7 +332,7 @@ function summarizeSkew(countMap, totalExamples) {
   };
 }
 
-function buildWarnings({ totalExamples, classBalance, rewardDistribution, confidenceDeltaDistribution, misconceptionSkew, strategyImbalance, unlabeledRate }) {
+function buildWarnings({ totalExamples, classBalance, rewardDistribution, confidenceDeltaDistribution, worldModelRecoveryDistribution, misconceptionSkew, strategyImbalance, unlabeledRate }) {
   const warnings = [];
   if (totalExamples < 50) warnings.push(`Dataset is small (${totalExamples} examples); baseline results may be unstable.`);
   if (classBalance.recoveryRate <= 0.15 || classBalance.recoveryRate >= 0.85) {
@@ -331,6 +352,9 @@ function buildWarnings({ totalExamples, classBalance, rewardDistribution, confid
   }
   if (unlabeledRate >= 0.3) {
     warnings.push(`Many examples lack misconception labels (${unlabeledRate}); classifier coverage may need improvement.`);
+  }
+  if (worldModelRecoveryDistribution.mean === 0) {
+    warnings.push("World-model recovery projections are missing from the exported recovery dataset.");
   }
   return warnings;
 }
