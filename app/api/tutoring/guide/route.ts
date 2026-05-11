@@ -2,10 +2,11 @@ import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { createReasoningEngine, type TutoringGuidanceResult, type TutoringStrategy } from "@/lib/reasoningEngine/engine";
+import { createReasoningEngine, type TutoringGuidanceResult } from "@/lib/reasoningEngine/engine";
 import { DEFAULT_TUTORING_POLICY_ARTIFACT, scoreTutoringStrategyWithArtifact } from "@/lib/reasoningEngine/adaptivePolicyArtifact";
 import { persistReasoningResponseRun, mapTutoringStrategies } from "@/lib/reasoningEngine/persistence";
 import { getStudentKnowledgeState, updateStudentStateFromVerification, formatStudentState } from "@/lib/reasoningEngine/studentState";
+import { buildTutoringWorldModel } from "@/lib/reasoningEngine/worldModel";
 
 const reasoningEngine = createReasoningEngine({
   beamWidth: Number(process.env.REASONING_ENGINE_BEAM_WIDTH || 3),
@@ -57,7 +58,7 @@ type AdaptiveTutoringTelemetry = {
 };
 
 export async function POST(req: Request) {
-  const traceId = req.headers.get("x-quickstud-trace") || (globalThis.crypto as any)?.randomUUID?.() || `${Date.now()}-${Math.random()}`;
+  const traceId = req.headers.get("x-quickstud-trace") || createTraceId();
   const testKey = process.env.FLASHCARDS_TEST_KEY;
   const isTestMode = !!testKey && req.headers.get("x-flashcards-test-key") === testKey;
 
@@ -107,6 +108,16 @@ export async function POST(req: Request) {
     });
     const adaptiveConfig = getAdaptiveTutoringConfig();
     const { guidance: effectiveGuidance, telemetry: adaptiveTelemetry } = applyAdaptiveTutoringPolicy(guidance, adaptiveConfig);
+    const worldModel = buildTutoringWorldModel({
+      prompt,
+      studentAnswer,
+      verification,
+      studentState,
+      weakTopicMatches: effectiveGuidance.metadata.weakTopicMatches,
+      misconceptionSignals: effectiveGuidance.metadata.misconceptionSignals,
+      strategies: effectiveGuidance.metadata.candidateStrategies,
+      selectedStrategyId: effectiveGuidance.metadata.selectedStrategy.id,
+    });
 
     let reasoningRunId: string | null = null;
     let studentStateView = null;
@@ -126,6 +137,7 @@ export async function POST(req: Request) {
           weakTopicMatches: effectiveGuidance.metadata.weakTopicMatches,
           misconceptionSignals: effectiveGuidance.metadata.misconceptionSignals,
           adaptivePolicy: adaptiveTelemetry,
+          worldModel,
         } as Prisma.InputJsonValue,
         candidatesGenerated: effectiveGuidance.metadata.candidateStrategies.length,
         candidatesSelected: 1,
@@ -162,15 +174,16 @@ export async function POST(req: Request) {
       selectedStrategy: effectiveGuidance.metadata.selectedStrategy,
       candidateStrategies: effectiveGuidance.metadata.candidateStrategies,
       adaptivePolicy: adaptiveTelemetry,
+      worldModel,
       reasoningRunId,
       persisted: persist,
       studentState: studentStateView,
       traceId,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     return NextResponse.json(
       {
-        error: error?.message || "Failed to generate tutoring guidance",
+        error: error instanceof Error && error.message ? error.message : "Failed to generate tutoring guidance",
         traceId,
       },
       { status: 500 }
@@ -285,4 +298,12 @@ function clamp(value: number, min: number, max: number): number {
 
 function round3(value: number): number {
   return Math.round((Number(value) || 0) * 1000) / 1000;
+}
+
+function createTraceId() {
+  if (typeof globalThis.crypto?.randomUUID === "function") {
+    return globalThis.crypto.randomUUID();
+  }
+
+  return `${Date.now()}-${Math.random()}`;
 }

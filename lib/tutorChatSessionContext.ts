@@ -23,6 +23,10 @@ export type TutorChatSessionContext = {
     weakTopicMatches: string[];
     confidence: number | null;
     strategyType: string | null;
+    worldModelExplanation: string | null;
+    projectedConfidenceDelta: number | null;
+    projectedRecoveryProbability: number | null;
+    projectedStabilityGain: number | null;
   } | null;
   sessionComplete: boolean;
 };
@@ -66,6 +70,10 @@ export function sanitizeTutorChatSessionContext(value: unknown): TutorChatSessio
           weakTopicMatches: toStringArray(latestCoaching.weakTopicMatches),
           confidence: typeof latestCoaching.confidence === "number" ? latestCoaching.confidence : null,
           strategyType: toStringValue(latestCoaching.strategyType),
+          worldModelExplanation: toStringValue(latestCoaching.worldModelExplanation),
+          projectedConfidenceDelta: typeof latestCoaching.projectedConfidenceDelta === "number" ? latestCoaching.projectedConfidenceDelta : null,
+          projectedRecoveryProbability: typeof latestCoaching.projectedRecoveryProbability === "number" ? latestCoaching.projectedRecoveryProbability : null,
+          projectedStabilityGain: typeof latestCoaching.projectedStabilityGain === "number" ? latestCoaching.projectedStabilityGain : null,
         }
       : null,
     sessionComplete: Boolean(record.sessionComplete),

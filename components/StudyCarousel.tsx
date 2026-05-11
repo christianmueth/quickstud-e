@@ -73,6 +73,15 @@ type TutoringGuideResponse = {
     updatedAt: string | null;
     createdAt: string | null;
   } | null;
+  worldModel?: {
+    version: string;
+    selectedTransition?: {
+      explanation: string;
+      projectedConfidenceDelta: number;
+      projectedRecoveryProbability: number;
+      projectedStabilityGain: number;
+    };
+  } | null;
 };
 
 type StrategyPolicySummary = {
@@ -213,6 +222,16 @@ export default function StudyCarousel({
             weakTopicMatches: coachResult.weakTopicMatches || [],
             confidence: typeof coachResult.verification?.confidence === "number" ? coachResult.verification.confidence : null,
             strategyType: coachResult.selectedStrategy?.strategyType || null,
+            worldModelExplanation: coachResult.worldModel?.selectedTransition?.explanation || null,
+            projectedConfidenceDelta: typeof coachResult.worldModel?.selectedTransition?.projectedConfidenceDelta === "number"
+              ? coachResult.worldModel.selectedTransition.projectedConfidenceDelta
+              : null,
+            projectedRecoveryProbability: typeof coachResult.worldModel?.selectedTransition?.projectedRecoveryProbability === "number"
+              ? coachResult.worldModel.selectedTransition.projectedRecoveryProbability
+              : null,
+            projectedStabilityGain: typeof coachResult.worldModel?.selectedTransition?.projectedStabilityGain === "number"
+              ? coachResult.worldModel.selectedTransition.projectedStabilityGain
+              : null,
           }
         : null,
       sessionComplete,

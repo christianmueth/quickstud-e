@@ -325,6 +325,7 @@ function buildSystemPrompt({
     `Focus concept: ${focusConcept || "none"}`,
     `Why this focus was chosen: ${focusReason || "not specified"}`,
     `Live study context: ${formatLiveContextSummary(liveContext)}`,
+    `World model read: ${formatWorldModelSummary(liveContext)}`,
     `Weak concepts: ${formatList(studentState.weakConcepts, "none recorded")}`,
     `Recent recovery needs: ${formatList(studentState.recentFailures, "none recorded")}`,
     `Recent wins: ${formatList(studentState.recentSuccesses, "none recorded")}`,
@@ -383,6 +384,26 @@ function formatLiveContextSummary(liveContext: TutorChatSessionContext | null) {
     liveContext.latestCoaching?.hint ? `latest hint: ${liveContext.latestCoaching.hint}` : null,
     liveContext.latestCoaching?.misconceptionSignals.length
       ? `misconceptions: ${liveContext.latestCoaching.misconceptionSignals.join(", ")}`
+      : null,
+  ];
+
+  return parts.filter(Boolean).join(" | ");
+}
+
+function formatWorldModelSummary(liveContext: TutorChatSessionContext | null) {
+  const coaching = liveContext?.latestCoaching;
+  if (!coaching?.worldModelExplanation) return "no active transition estimate";
+
+  const parts = [
+    coaching.worldModelExplanation,
+    typeof coaching.projectedConfidenceDelta === "number"
+      ? `projected confidence delta ${coaching.projectedConfidenceDelta}`
+      : null,
+    typeof coaching.projectedRecoveryProbability === "number"
+      ? `projected recovery ${coaching.projectedRecoveryProbability}`
+      : null,
+    typeof coaching.projectedStabilityGain === "number"
+      ? `projected stability gain ${coaching.projectedStabilityGain}`
       : null,
   ];
 
