@@ -271,6 +271,16 @@ export default async function ProgressPage() {
             <div className="rounded-2xl border border-sky-100 bg-white/90 p-4 text-sm leading-6 text-gray-700">
               <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-sky-700">What should happen next</p>
               <p className="mt-2">{progressNarrative.nextStep}</p>
+              {progressNarrative.resumeHref ? (
+                <div className="mt-4">
+                  <Link
+                    href={progressNarrative.resumeHref}
+                    className="inline-flex rounded-full bg-slate-950 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800"
+                  >
+                    {progressNarrative.resumeLabel}
+                  </Link>
+                </div>
+              ) : null}
             </div>
           </div>
         </div>
@@ -721,6 +731,8 @@ function buildProgressNarrative(
       : nextTopic
         ? `Use the next guided session to resume ${nextTopic.title.toLowerCase()} directly so the current recovery thread is not lost between visits.`
         : `Run one short guided session and stay with the first concept that feels shaky until the explanation becomes cleaner, not merely familiar.`,
+    resumeHref: nextTopic?.href || null,
+    resumeLabel: nextTopic?.actionLabel || "Resume the next weak point",
   };
 }
 

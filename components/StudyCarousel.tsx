@@ -373,7 +373,7 @@ export default function StudyCarousel({
     );
 
   if (!queue.length && sessionComplete) {
-    const reflection = buildSessionReflection(sessionEvents, focusConcept);
+    const reflection = buildSessionReflection(sessionEvents, deckId, focusConcept);
     return (
       <div className="space-y-4">
         <div className="rounded-3xl border border-emerald-200 bg-gradient-to-br from-emerald-50 via-white to-sky-50 p-6 shadow-sm">
@@ -400,6 +400,14 @@ export default function StudyCarousel({
           <h3 className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-700">Tutor next step</h3>
           <p className="mt-3 text-sm leading-6 text-slate-700">{reflection.nextStep}</p>
           <div className="mt-4 flex flex-wrap gap-3">
+            {reflection.resumeHref ? (
+              <button
+                className="rounded-full bg-emerald-600 px-4 py-2 text-sm font-medium text-white"
+                onClick={() => router.push(reflection.resumeHref as string)}
+              >
+                Resume this weak point
+              </button>
+            ) : null}
             <button className="rounded-full bg-slate-950 px-4 py-2 text-sm font-medium text-white" onClick={loadQueue}>
               Start another pass
             </button>
@@ -654,7 +662,7 @@ function buildTutorPresence({
   };
 }
 
-function buildSessionReflection(events: SessionEvent[], focusConcept?: string | null) {
+function buildSessionReflection(events: SessionEvent[], deckId: string, focusConcept?: string | null) {
   const coachedCount = events.filter((event) => event.coached).length;
   const recoveredCount = events.filter((event) => event.recovered).length;
   const easyCount = events.filter((event) => event.rating === "easy").length;
@@ -697,7 +705,18 @@ function buildSessionReflection(events: SessionEvent[], focusConcept?: string | 
     ? `Start one more short pass${focusLabel ? ` centered on ${focusLabel}` : ""} and ask for coaching earlier on the first unstable card.`
     : `Take the momentum forward with a short follow-up review${focusLabel ? ` on ${focusLabel}` : ""} before switching topics.`;
 
-  return { headline, summary, whatChanged, stillUnstable, nextSession, nextStep };
+  const resumeHref = topWeakTopic || focusConcept
+    ? buildDeckResumeHref({
+        deckId,
+        concept: topWeakTopic || focusConcept || "",
+        reason: againCount > 0
+          ? `This concept still felt unstable at the end of your last guided session, so the tutor is bringing you back to it first.`
+          : `This concept improved, but the tutor wants one more focused pass before treating it as stable.`,
+        source: "session_reflection",
+      })
+    : null;
+
+  return { headline, summary, whatChanged, stillUnstable, nextSession, nextStep, resumeHref };
 }
 
 function mostCommonLabel(labels: string[]) {
@@ -722,6 +741,25 @@ function titleFromSignal(value: string) {
     .filter(Boolean)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
     .join(" ");
+}
+
+function buildDeckResumeHref({
+  deckId,
+  concept,
+  reason,
+  source,
+}: {
+  deckId: string;
+  concept: string;
+  reason: string;
+  source: string;
+}) {
+  const params = new URLSearchParams({
+    concept: trimQuestion(concept, 80),
+    reason: trimQuestion(reason, 160),
+    source,
+  });
+  return `/app/deck/${deckId}?${params.toString()}`;
 }
 
 function trimQuestion(value: string, limit: number) {
