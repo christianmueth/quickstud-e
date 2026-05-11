@@ -232,6 +232,29 @@ export default function TutorChatPanel() {
                 ) : sessionContext.answerDraft ? (
                   <p className="mt-2 text-slate-700">Your current draft is loaded, so the tutor can respond to what you have already tried.</p>
                 ) : null}
+                {sessionContext.latestCoaching?.worldModelExplanation ? (
+                  <div className="mt-3 rounded-2xl border border-fuchsia-200 bg-white/70 px-3 py-3 text-[13px] leading-5 text-slate-700">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-fuchsia-800">Learner world model</p>
+                    <p className="mt-1 text-slate-800">{sessionContext.latestCoaching.worldModelExplanation}</p>
+                    <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-slate-600">
+                      {typeof sessionContext.latestCoaching.projectedConfidenceDelta === "number" ? (
+                        <span className="rounded-full border border-fuchsia-200 bg-fuchsia-50 px-2.5 py-1 text-fuchsia-800">
+                          confidence {formatSignedPercent(sessionContext.latestCoaching.projectedConfidenceDelta)}
+                        </span>
+                      ) : null}
+                      {typeof sessionContext.latestCoaching.projectedRecoveryProbability === "number" ? (
+                        <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-emerald-800">
+                          recovery {formatPercent(sessionContext.latestCoaching.projectedRecoveryProbability)}
+                        </span>
+                      ) : null}
+                      {typeof sessionContext.latestCoaching.projectedStabilityGain === "number" ? (
+                        <span className="rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-sky-800">
+                          stability {formatPercent(sessionContext.latestCoaching.projectedStabilityGain)}
+                        </span>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : null}
               </div>
             ) : null}
 
@@ -352,4 +375,13 @@ function buildPromptSuggestions(context: TutorChatContext | null, pathname: stri
 
 function getErrorMessage(error: unknown, fallback: string) {
   return error instanceof Error && error.message ? error.message : fallback;
+}
+
+function formatPercent(value: number) {
+  return `${Math.round(value * 100)}%`;
+}
+
+function formatSignedPercent(value: number) {
+  const rounded = Math.round(value * 100);
+  return `${rounded > 0 ? "+" : ""}${rounded}%`;
 }
