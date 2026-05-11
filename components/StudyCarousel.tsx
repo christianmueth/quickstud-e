@@ -705,13 +705,19 @@ function buildSessionReflection(events: SessionEvent[], deckId: string, focusCon
     ? `Start one more short pass${focusLabel ? ` centered on ${focusLabel}` : ""} and ask for coaching earlier on the first unstable card.`
     : `Take the momentum forward with a short follow-up review${focusLabel ? ` on ${focusLabel}` : ""} before switching topics.`;
 
+  const resumeReason = topMisconception
+    ? `${focusLabel || "This concept"} still becomes unstable around ${humanizeMisconceptionCategory(topMisconception).toLowerCase()}, so the tutor is bringing you back here before that pattern hardens.`
+    : topStrategy
+      ? `${focusLabel || "This concept"} improved with ${topStrategy.toLowerCase()}, but it still needs one more focused pass before the tutor should treat it as stable.`
+      : againCount > 0
+        ? `${focusLabel || "This concept"} was still shaky at the end of the session, so the tutor is resuming it first instead of letting the thread go cold.`
+        : `${focusLabel || "This concept"} is recovering, but it needs one more deliberate revisit while the explanation path is still fresh.`;
+
   const resumeHref = topWeakTopic || focusConcept
     ? buildDeckResumeHref({
         deckId,
         concept: topWeakTopic || focusConcept || "",
-        reason: againCount > 0
-          ? `This concept still felt unstable at the end of your last guided session, so the tutor is bringing you back to it first.`
-          : `This concept improved, but the tutor wants one more focused pass before treating it as stable.`,
+        reason: resumeReason,
         source: "session_reflection",
       })
     : null;

@@ -213,6 +213,9 @@ export default async function ProgressPage() {
   const recoverySummary = summarizeRecoveryTimeline(recoveryTimeline);
   const tutorBrief = buildTutorBrief(studentState, analytics, recoverySummary);
   const progressNarrative = buildProgressNarrative(studentState, analytics, recoverySummary, recommendedTopics);
+  const progressResumeHref = progressNarrative.resumeHref
+    ? replaceHrefReason(progressNarrative.resumeHref, progressNarrative.resumeReason)
+    : null;
 
   return (
     <main className="mx-auto max-w-6xl space-y-8 px-6 py-8">
@@ -271,10 +274,10 @@ export default async function ProgressPage() {
             <div className="rounded-2xl border border-sky-100 bg-white/90 p-4 text-sm leading-6 text-gray-700">
               <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-sky-700">What should happen next</p>
               <p className="mt-2">{progressNarrative.nextStep}</p>
-              {progressNarrative.resumeHref ? (
+              {progressResumeHref ? (
                 <div className="mt-4">
                   <Link
-                    href={progressNarrative.resumeHref}
+                    href={progressResumeHref}
                     className="inline-flex rounded-full bg-slate-950 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800"
                   >
                     {progressNarrative.resumeLabel}
@@ -733,6 +736,13 @@ function buildProgressNarrative(
         : `Run one short guided session and stay with the first concept that feels shaky until the explanation becomes cleaner, not merely familiar.`,
     resumeHref: nextTopic?.href || null,
     resumeLabel: nextTopic?.actionLabel || "Resume the next weak point",
+    resumeReason: recentFailure
+      ? `${trimText(recentFailure, 132)} is still unresolved, so the tutor is sending you back into that exact weak point instead of widening the session.`
+      : misconception
+        ? `${topicLabel} still destabilizes around ${humanizeMisconceptionCategory(misconception).toLowerCase()}, so the tutor wants a targeted revisit before treating the topic as secure.`
+        : lowConfidenceStreak > 0
+          ? `${topicLabel} is still inside a low-confidence stretch, so the tutor is reopening the same thread while the friction point is still identifiable.`
+          : `${topicLabel} looks close to stable, but one more focused revisit will tell the tutor whether the improvement is durable or only recent.`,
   };
 }
 
@@ -870,6 +880,13 @@ function buildRecommendationHref(
     source: badge.toLowerCase().replace(/\s+/g, "_"),
   });
   return `/app/deck/${bestDeck.id}?${params.toString()}`;
+}
+
+function replaceHrefReason(href: string, reason: string) {
+  const [path, queryString = ""] = href.split("?");
+  const params = new URLSearchParams(queryString);
+  params.set("reason", trimText(reason, 160));
+  return `${path}?${params.toString()}`;
 }
 
 function chooseBestDeckForConcept(
