@@ -22,6 +22,271 @@ That means prioritizing:
 
 Do not prioritize more planner authority, online RL, or opaque control loops for this phase.
 
+## Adaptive Tutor Features
+
+Phase 1 is the visible adaptive intelligence phase for the student product.
+
+Phase objective:
+
+- make QuickStud-E feel deeply adaptive
+- expand continuity, not authority
+- preserve bounded, interpretable tutor behavior across workspace, study, reflection, and progress surfaces
+
+This phase is:
+
+- continuity expansion
+- tutor-presence expansion
+- interpretability expansion
+
+This phase is not:
+
+- capability expansion for its own sake
+- hidden authority expansion
+- planner control rollout
+- velocity-at-all-costs delivery
+
+Constitutional constraints for this phase remain non-negotiable:
+
+- no live planner authority
+- no online RL rollout
+- no unrestricted Muon gating
+- no autonomous study execution
+- no self-updating policy loops
+- no hidden adaptive overrides
+
+The standing rule remains:
+
+```text
+capability may evolve
+authority must still be earned
+```
+
+### Phase 1: Visible Adaptive Intelligence
+
+Timeline:
+
+- Weeks 1 to 4
+
+Primary goal:
+
+- make the product feel like one continuous adaptive tutor across study sets, sessions, recommendations, progress, and reflection surfaces without expanding hidden authority
+
+Implementation order:
+
+1. persistent instructional chat
+2. stronger reflection continuity
+3. tutor memory presence
+4. week-4 integration stabilization pass
+
+Rationale:
+
+- chat establishes ongoing context
+- reflection turns session output into learning narrative
+- memory hints reinforce tutor-student continuity over time
+- integration stabilization ensures all surfaces feel like one product rather than several adaptive fragments
+
+### Persistent Instructional Chat
+
+Status: highest leverage, foundational for continuity
+
+Student-facing goal:
+
+- provide a persistent chat interface that is aware of the student's current learning context and prior tutoring history
+
+Required context awareness:
+
+- current study set and current session
+- weak concepts and stabilized concepts
+- misconception patterns and recovery events
+- tutor memory moments and prior session hints
+- preferred explanation style
+- session context such as active prompt, queue position, and recent tutoring interactions
+
+Implementation instructions:
+
+- place the chat panel persistently in `/app`
+- allow expand and collapse without interrupting queue flow
+- read from `StudentState`, `ReasoningRun`, and recovery records already persisted in product tables
+- ensure the chat references current adaptive state rather than generic free-form chat behavior
+- ensure the chat can suggest and explain but cannot execute study actions on the student's behalf
+- update tutor memory from new interactions only as continuity state, not as a hidden authority channel
+
+Tutor voice rules:
+
+- keep the voice calm, instructional, and continuity-aware
+- prefer phrasing such as "Last session you struggled with X; here's a quick refresh before moving on."
+- avoid product-internal wording such as "AI assistant", "agent", "planner", or "system state"
+
+Testing and QA:
+
+- verify chat continuity across reloads, workspace navigation, and study-set switching
+- verify chat references actual weak concepts, stabilized concepts, and recovery history
+- verify students cannot use chat to bypass governance or silently modify queues
+- verify tutor-language conventions remain consistent with the rest of the product
+- target typical load behavior under 200ms when context is already present in the workspace data path
+
+### Stronger Reflection Continuity
+
+Student-facing goal:
+
+- turn post-session summaries into coherent, context-aware tutor narrative rather than isolated metrics
+
+Implementation instructions:
+
+- show a rich post-session summary panel at the end of a guided session
+- include what improved, what remains unstable, what changed during the session, and which concept should come next
+- surface stabilization tracking such as newly stabilized concepts, recurring weak areas, and recovery progression
+- keep the narrative in tutor voice with wording such as "You made strong progress on X; Y remains shaky, so the next session will revisit it."
+- pull from `study_recovery`, `ReasoningRun`, and prior tutor memory context already stored in product data
+- provide actionable resume-this-concept links that route directly into the next adaptive study destination
+
+Bounded delivery notes:
+
+- avoid raw technical metrics, score dumps, or exposed internal delta numbers on the student surface
+- reflection should summarize and guide, not autonomously set goals or widen control boundaries
+
+Testing and QA:
+
+- verify summaries reflect actual session events, weak concepts, and recovery outcomes
+- verify next-step links preserve adaptive destination routing and continuity
+- verify tutor voice remains consistent with workspace, progress, and guided-session surfaces
+
+### Tutor Memory Presence
+
+Student-facing goal:
+
+- reinforce a persistent tutor-student relationship using interpretable memory cues drawn from real prior sessions
+
+Implementation instructions:
+
+- add lightweight memory references to the dashboard, workspace, study sessions, progress page, and reflection surfaces
+- surface short hints such as prior hesitation history, successful explanation types, and stabilized concepts
+- persist concise explanation-style memory such as concise vs detailed, example-first, hint-first, and pacing preference
+- update tutor memory only after completed guided sessions, tutor-help interactions, and reflection completion
+
+Bounded delivery notes:
+
+- memory cues should inform guidance without altering authority boundaries
+- avoid surveillance-like phrasing, hidden adaptation, or opaque preference shaping
+- keep memory references short, positive, and educationally useful
+
+Testing and QA:
+
+- verify memory references point to real prior sessions and real explanation behavior
+- verify memory hints never imply automatic action selection
+- verify tutor memory remains supportive rather than creepy or over-personalized
+
+### Week-By-Week Execution
+
+#### Week 1: Persistent Instructional Chat Foundation
+
+Deliverables:
+
+- persistent tutor chat panel in `/app`
+- context integration layer reading current study set, weak concepts, stabilized concepts, misconceptions, recovery events, explanation style, recent guided-session summaries, and tutor memory moments
+- tutor voice rules enforced across chat entry, response, and continuity prompts
+
+Week 1 validation:
+
+- chat context awareness is accurate
+- chat continuity survives navigation and reloads
+- chat remains guidance-only and cannot silently modify study behavior
+
+#### Week 2: Reflection Continuity
+
+Deliverables:
+
+- rich post-session reflection
+- stabilization tracking
+- resume guidance links into the next adaptive session
+
+Week 2 validation:
+
+- reflection accuracy matches real session activity
+- language remains coherent and non-technical
+- recommendation continuity and routing remain correct
+
+#### Week 3: Tutor Memory Presence
+
+Deliverables:
+
+- tutor memory moments across dashboard, workspace, study, progress, and reflection surfaces
+- explanation-style memory persistence
+- bounded memory update logic tied to completed educational interactions
+
+Week 3 validation:
+
+- memory recall is factually correct
+- no authority drift appears
+- UX remains supportive and non-invasive
+
+#### Week 4: Integration Stabilization
+
+Deliverables:
+
+- tutor voice consistency pass across loading states, empty states, errors, modals, recommendations, reflection, and chat
+- workspace continuity pass across study, progress, memory, reflection, and auth continuity
+- context-boundary review confirming bounded active context only and no silent adaptive escalation
+
+Week 4 validation:
+
+- full persona sweep across new student, recovering student, strong student, and operator
+- recovering-student account visibly demonstrates tutor continuity, memory continuity, recommendation continuity, recovery continuity, and guided-session continuity
+
+### Architecture And Governance Implications
+
+Backend requirements:
+
+- read from `StudentState`, `ReasoningRun`, and `study_recovery` without introducing authority-sensitive write loops
+
+Frontend requirements:
+
+- persistent tutor-consistent UI integrated into `/app`, guided sessions, progress, and reflection surfaces
+
+Data integrity rule:
+
+- tutor context can expand continuity but must remain read-only for authority-sensitive fields and rollout controls
+
+Governance rule:
+
+- preserve shadow-only posture throughout Phase 1; no planner rollout, no online RL expansion, and no hidden adaptive escalation
+
+### Launch Boundaries For Phase 1
+
+All Phase 1 features must:
+
+- avoid autonomous study execution
+- integrate with existing protected-route logic
+- preserve modal auth and `?next=...` continuity
+- maintain operator and replay isolation
+- preserve fail-closed governance boundaries
+
+### Success Criteria For Phase 1
+
+Phase 1 succeeds if students consistently perceive one continuous adaptive tutor across:
+
+- study sessions
+- reflection surfaces
+- recommendations
+- workspace navigation
+- progress surfaces
+- persistent chat
+
+Phase 1 fails if visible adaptivity requires:
+
+- hidden authority expansion
+- governance erosion
+- opaque control behavior
+- chat drift into unbounded autonomous assistant behavior
+
+The correct model is:
+
+- guided instructional continuity
+
+The incorrect model is:
+
+- agentic educational control
+
 ## Delivery Tiers
 
 ## Tier 1: Immediate Product Leverage

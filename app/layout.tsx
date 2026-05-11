@@ -1,8 +1,8 @@
-import type { Metadata } from "next";
 import { ClerkProvider } from "@clerk/nextjs";
 import "./globals.css";
 import { Toaster } from "sonner";
 import NavBar from "@/components/NavBar"; // <-- make sure this path exists
+import TutorChatPanel from "@/components/TutorChatPanel";
 
 export const metadata = {
   title: "QuickStud-E",
@@ -27,6 +27,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           )}
           <NavBar />{/* toolbar/header lives inside <body> */}
           {children}
+          <TutorChatPanel />
           <Toaster richColors closeButton position="top-right" />
         </body>
       </html>

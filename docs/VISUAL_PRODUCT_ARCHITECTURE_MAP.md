@@ -26,9 +26,11 @@ The goal is product clarity, not authority expansion.
 │                                                               │
 │  Study Workspace                                              │
 │   ├─ Guided sessions                                          │
+│   ├─ Persistent tutor chat                                    │
 │   ├─ Tutor voice                                              │
 │   ├─ Adaptive recommendations                                 │
 │   ├─ Resume-this-concept                                      │
+│   ├─ Tutor memory presence                                    │
 │   └─ Post-session reflection                                  │
 │                                                               │
 │  Progress Dashboard                                           │
@@ -156,10 +158,12 @@ The goal is product clarity, not authority expansion.
 ```text
 Tutor Voice
 Guided Sessions
+Persistent Tutor Chat
 Recommendation Explanations
 Resume-this-concept
 Post-session Reflection
 Recovery Timeline
+Tutor Memory Presence
 ```
 
 Goal:
@@ -174,6 +178,7 @@ Adaptive Pacing
 Next Topics Feed
 Continuity-based Guidance
 Recovery Progress Narratives
+Reflection Continuity
 ```
 
 Goal:

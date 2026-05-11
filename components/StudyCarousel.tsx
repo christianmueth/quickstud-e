@@ -3,6 +3,11 @@ import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 import { humanizeMisconceptionCategory } from "@/lib/reasoningEngine/contracts";
+import {
+  TUTOR_CHAT_SESSION_CONTEXT_EVENT,
+  TUTOR_CHAT_SESSION_CONTEXT_STORAGE_KEY,
+  type TutorChatSessionContext,
+} from "@/lib/tutorChatSessionContext";
 
 type StudyCard = { id: string; question: string; answer: string };
 
@@ -179,6 +184,54 @@ export default function StudyCarousel({
     setPolicySummary(null);
     setCoachLoading(false);
   }, [current?.id]);
+
+  useEffect(() => {
+    const nextContext: TutorChatSessionContext = {
+      deckId,
+      focusConcept: focusConcept || null,
+      focusReason: focusReason || null,
+      queuePosition: current
+        ? {
+            current: idx + 1,
+            total: queue.length,
+          }
+        : null,
+      currentCard: current
+        ? {
+            id: current.id,
+            question: current.question,
+            answerPreview: current.answer.slice(0, 220),
+            revealed: showBack,
+          }
+        : null,
+      answerDraft: answerDraft.trim() || null,
+      latestCoaching: coachResult
+        ? {
+            hint: coachResult.selectedStrategy?.hint || coachResult.tutoring?.final_answer || null,
+            rationale: coachResult.selectedStrategy?.rationale || null,
+            misconceptionSignals: coachResult.misconceptionSignals || [],
+            weakTopicMatches: coachResult.weakTopicMatches || [],
+            confidence: typeof coachResult.verification?.confidence === "number" ? coachResult.verification.confidence : null,
+            strategyType: coachResult.selectedStrategy?.strategyType || null,
+          }
+        : null,
+      sessionComplete,
+    };
+
+    window.localStorage.setItem(TUTOR_CHAT_SESSION_CONTEXT_STORAGE_KEY, JSON.stringify(nextContext));
+    window.dispatchEvent(new CustomEvent(TUTOR_CHAT_SESSION_CONTEXT_EVENT, { detail: nextContext }));
+  }, [
+    answerDraft,
+    coachResult,
+    current,
+    deckId,
+    focusConcept,
+    focusReason,
+    idx,
+    queue.length,
+    sessionComplete,
+    showBack,
+  ]);
 
   async function mark(rating: "again" | "good" | "easy") {
     if (!current) return;
