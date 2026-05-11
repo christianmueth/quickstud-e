@@ -1,4 +1,5 @@
 import { ClerkProvider } from "@clerk/nextjs";
+import { Suspense } from "react";
 import "./globals.css";
 import { Toaster } from "sonner";
 import NavBar from "@/components/NavBar"; // <-- make sure this path exists
@@ -25,9 +26,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               Missing NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY. Clerk cannot load in this environment.
             </div>
           )}
-          <NavBar />{/* toolbar/header lives inside <body> */}
+          <Suspense fallback={null}>
+            <NavBar />
+          </Suspense>
           {children}
-          <TutorChatPanel />
+          <Suspense fallback={null}>
+            <TutorChatPanel />
+          </Suspense>
           <Toaster richColors closeButton position="top-right" />
         </body>
       </html>
