@@ -289,9 +289,6 @@ export default async function AppPage({
                         Upgrade to Premium
                       </BillingActionButton>
                     )}
-                    <Link href="/app/billing" className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-900 hover:bg-slate-50">
-                      Billing
-                    </Link>
                   </div>
                 </div>
               </div>

@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
 import { upload } from "@vercel/blob/client";
+import BillingActionButton from "@/components/BillingActionButton";
+import PremiumUpsellModal from "@/components/PremiumUpsellModal";
 
 type CreateFormProps = {
   billingSummary?: {
@@ -19,6 +21,7 @@ type CreateFormProps = {
 export default function CreateForm({ billingSummary }: CreateFormProps) {
   const API_BODY_LIMIT = 4 * 1024 * 1024; // ~4MB body limit for serverless; larger videos will be uploaded to Blob
   const [pending, setPending] = useState(false);
+  const [upgradePrompt, setUpgradePrompt] = useState<{ title: string; message: string } | null>(null);
   const [contentType, setContentType] = useState<
     "url" | "text" | "pdf" | "subtitle" | "video"
   >("url");
@@ -235,8 +238,10 @@ export default function CreateForm({ billingSummary }: CreateFormProps) {
         }
 
         if (j?.code === "FREE_PLAN_LIMIT" || j?.code === "PREMIUM_REQUIRED") {
-          toast.error(j?.error || "Upgrade required to continue.");
-          window.location.href = j?.upgradePath || "/app/billing";
+          setUpgradePrompt({
+            title: j?.code === "FREE_PLAN_LIMIT" ? "Free plan limit reached" : "Premium feature",
+            message: j?.error || "Upgrade to Premium to continue.",
+          });
           return;
         }
 
@@ -277,6 +282,7 @@ export default function CreateForm({ billingSummary }: CreateFormProps) {
   }
 
   return (
+    <>
     <form onSubmit={handleSubmit} className="space-y-4">
       {/* Generation mode selector */}
       <div>
@@ -595,12 +601,14 @@ export default function CreateForm({ billingSummary }: CreateFormProps) {
             {billingSummary.monthlyGenerationLimit ? ` of ${billingSummary.monthlyGenerationLimit}` : ""} monthly AI generations on the free plan.
           </p>
           <div className="mt-3 flex flex-wrap gap-3">
-            <Link href="/app/billing" className="rounded-full bg-slate-950 px-4 py-2 text-sm font-medium text-white">
+            <BillingActionButton
+              action="checkout"
+              plan="premium"
+              className="rounded-full bg-slate-950 px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+              pendingLabel="Opening checkout..."
+            >
               Upgrade to Premium
-            </Link>
-            <Link href="/app/billing" className="rounded-full border border-amber-300 px-4 py-2 text-sm font-medium text-amber-900">
-              View billing
-            </Link>
+            </BillingActionButton>
           </div>
         </div>
       ) : (
@@ -613,5 +621,12 @@ export default function CreateForm({ billingSummary }: CreateFormProps) {
         </button>
       )}
     </form>
+    <PremiumUpsellModal
+      open={Boolean(upgradePrompt)}
+      title={upgradePrompt?.title || "Premium feature"}
+      message={upgradePrompt?.message || "Upgrade to Premium to continue."}
+      onClose={() => setUpgradePrompt(null)}
+    />
+    </>
   );
 }

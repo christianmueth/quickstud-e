@@ -138,12 +138,6 @@ export default async function Home({
                 >
                   Open study workspace
                 </Link>
-                <Link
-                  href="/app/billing"
-                  className="rounded-full border border-slate-300 px-6 py-3 text-sm font-medium text-slate-800 hover:bg-white"
-                >
-                  View plans
-                </Link>
               </SignedIn>
             </div>
           </div>
@@ -234,11 +228,6 @@ export default async function Home({
                       {plan.name === "Free" ? "Open study workspace" : `Choose ${plan.name}`}
                     </Link>
                   </SignedIn>
-                  {plan.name !== "Free" ? (
-                    <Link href="/app/billing" className="rounded-full border border-slate-300 px-4 py-2 text-sm font-medium text-slate-800 hover:bg-white">
-                      Review billing details
-                    </Link>
-                  ) : null}
                 </div>
               </article>
             ))}

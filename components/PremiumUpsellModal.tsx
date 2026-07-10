@@ -16,7 +16,6 @@ export default function PremiumUpsellModal({
   title,
   message,
   onClose,
-  upgradePath = "/app/billing",
 }: PremiumUpsellModalProps) {
   if (!open) return null;
 
@@ -35,9 +34,6 @@ export default function PremiumUpsellModal({
           >
             Upgrade to Premium
           </BillingActionButton>
-          <Link href={upgradePath} className="rounded-full border border-slate-300 px-4 py-2 text-sm font-medium text-slate-900 hover:bg-slate-50">
-            View billing
-          </Link>
           <button
             type="button"
             onClick={onClose}
