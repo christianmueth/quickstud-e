@@ -17,7 +17,12 @@ function getWebhookSecret() {
 
 async function findUserForSubscription(subscription: Stripe.Subscription) {
   const customerId = typeof subscription.customer === "string" ? subscription.customer : subscription.customer.id;
+  const appUserId = subscription.metadata?.appUserId;
   const clerkUserId = subscription.metadata?.clerkUserId;
+  if (appUserId) {
+    const user = await prisma.user.findUnique({ where: { id: appUserId } });
+    if (user) return user;
+  }
   if (clerkUserId) {
     const user = await prisma.user.findUnique({ where: { clerkUserId } });
     if (user) return user;
@@ -56,14 +61,15 @@ async function syncSubscription(subscription: Stripe.Subscription) {
 }
 
 async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
+  const appUserId = session.metadata?.appUserId;
   const clerkUserId = session.metadata?.clerkUserId || session.client_reference_id;
-  if (!clerkUserId) return;
+  if (!appUserId && !clerkUserId) return;
 
   const customerId = typeof session.customer === "string" ? session.customer : session.customer?.id;
   const subscriptionId = typeof session.subscription === "string" ? session.subscription : session.subscription?.id;
 
   await prisma.user.updateMany({
-    where: { clerkUserId },
+    where: appUserId ? { id: appUserId } : { clerkUserId: clerkUserId! },
     data: {
       stripeCustomerId: customerId || undefined,
       stripeSubscriptionId: subscriptionId || undefined,

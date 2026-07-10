@@ -32,12 +32,16 @@ export async function POST(req: Request) {
   const email = clerkProfile?.emailAddresses?.find((entry) => entry.id === clerkProfile.primaryEmailAddressId)?.emailAddress
     || clerkProfile?.emailAddresses?.[0]?.emailAddress
     || undefined;
+  const stripe = getStripe();
 
   let customerId = billing.user.stripeCustomerId;
   if (!customerId) {
     const customer = await stripe.customers.create({
       email,
-      metadata: { clerkUserId },
+      metadata: {
+        clerkUserId,
+        appUserId: billing.user.id,
+      },
     });
     customerId = customer.id;
     await prisma.user.update({
@@ -47,7 +51,6 @@ export async function POST(req: Request) {
   }
 
   const baseUrl = getBaseUrl(req);
-  const stripe = getStripe();
   const session = await stripe.checkout.sessions.create({
     mode: "subscription",
     customer: customerId,
@@ -58,11 +61,13 @@ export async function POST(req: Request) {
     client_reference_id: clerkUserId,
     metadata: {
       clerkUserId,
+      appUserId: billing.user.id,
       plan: planConfig.plan,
     },
     subscription_data: {
       metadata: {
         clerkUserId,
+        appUserId: billing.user.id,
         plan: planConfig.plan,
       },
     },
