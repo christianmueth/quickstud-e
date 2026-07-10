@@ -3,19 +3,24 @@ import { auth } from "@clerk/nextjs/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { chatV1, type ChatV1Message } from "@/lib/aiGateway";
+import { buildPremiumRequiredMessage, getBillingSnapshot } from "@/lib/billing";
 import { formatStudentState } from "@/lib/reasoningEngine/studentState";
 import { sanitizeTutorChatSessionContext, type TutorChatSessionContext } from "@/lib/tutorChatSessionContext";
+import { sanitizeWorkspaceContext, summarizeWorkspaceContext, type WorkspaceContext } from "@/lib/workspaceContext";
+import { buildWorkspaceConstitutionPrompt } from "@/lib/workspaceConstitution";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 type TutorChatRequest = {
   message?: string;
+  tutorMode?: string | null;
   path?: string;
   deckId?: string | null;
   focusConcept?: string | null;
   focusReason?: string | null;
   liveContext?: TutorChatSessionContext | null;
+  workspaceContext?: WorkspaceContext | null;
 };
 
 type TutorChatHistoryItem = {
@@ -25,6 +30,18 @@ type TutorChatHistoryItem = {
   createdAt: string;
 };
 
+type TutorMode = "study-plan" | "explanation" | "quiz-me";
+
+type TutorRunRecord = {
+  id: string;
+  mode: string;
+  prompt: string | null;
+  finalAnswer: string | null;
+  title: string | null;
+  createdAt: Date;
+  metadata: Prisma.JsonValue | null;
+};
+
 export async function GET(req: Request) {
   const { userId: clerkUserId } = await auth();
   if (!clerkUserId) {
@@ -32,6 +49,7 @@ export async function GET(req: Request) {
   }
 
   const requestUrl = new URL(req.url);
+  const tutorMode = normalizeTutorMode(requestUrl.searchParams.get("mode"));
   const requestedDeckId = cleanQueryValue(requestUrl.searchParams.get("deckId"));
   const user = await prisma.user.findUnique({
     where: { clerkUserId },
@@ -58,21 +76,22 @@ export async function GET(req: Request) {
       ...(deck ? { OR: [{ deckId: deck.id }, { deckId: null }] } : {}),
     },
     orderBy: { createdAt: "desc" },
-    take: 16,
+    take: 40,
     select: {
       id: true,
       mode: true,
       prompt: true,
       finalAnswer: true,
       title: true,
+      metadata: true,
       createdAt: true,
     },
   });
 
   return NextResponse.json({
     ok: true,
-    messages: toHistory(recentRuns),
     context: buildContextSnapshot({ studentState, deck, recentRuns }),
+    messages: toHistory(recentRuns, tutorMode),
   });
 }
 
@@ -82,9 +101,23 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Unauthorized", code: "UNAUTHORIZED" }, { status: 401 });
   }
 
+  const billing = await getBillingSnapshot(clerkUserId);
+  if (!billing.isPaid) {
+    return NextResponse.json(
+      {
+        error: buildPremiumRequiredMessage("Tutor chat"),
+        code: "PREMIUM_REQUIRED",
+        upgradePath: "/app/billing",
+      },
+      { status: 402 }
+    );
+  }
+
   const body = (await req.json()) as TutorChatRequest;
+  const tutorMode = normalizeTutorMode(body.tutorMode);
   const message = cleanMessage(body.message);
   const liveContext = sanitizeTutorChatSessionContext(body.liveContext);
+  const workspaceContext = sanitizeWorkspaceContext(body.workspaceContext);
   if (!message) {
     return NextResponse.json({ error: "Message is required", code: "BAD_REQUEST" }, { status: 400 });
   }
@@ -108,13 +141,14 @@ export async function POST(req: Request) {
       ...(deck ? { OR: [{ deckId: deck.id }, { deckId: null }] } : {}),
     },
     orderBy: { createdAt: "desc" },
-    take: 12,
+    take: 40,
     select: {
       id: true,
       mode: true,
       prompt: true,
       finalAnswer: true,
       title: true,
+      metadata: true,
       createdAt: true,
     },
   });
@@ -127,12 +161,13 @@ export async function POST(req: Request) {
         focusConcept: cleanQueryValue(body.focusConcept),
         focusReason: cleanQueryValue(body.focusReason),
         liveContext,
+        workspaceContext,
         deck,
         studentState,
         recentRuns,
       }),
     },
-    ...toModelHistory(recentRuns),
+    ...toModelHistory(recentRuns, tutorMode),
     { role: "user", content: message },
   ];
 
@@ -154,12 +189,14 @@ export async function POST(req: Request) {
       prompt: message,
       finalAnswer: assistantMessage,
       metadata: {
+        tutorMode,
         path: cleanQueryValue(body.path),
         focusConcept: cleanQueryValue(body.focusConcept),
         focusReason: cleanQueryValue(body.focusReason),
         weakConcepts: studentState.weakConcepts.slice(0, 3),
         preferredExplanationStyle: studentState.preferredExplanationStyle,
         liveContext,
+        workspaceContext,
       } as Prisma.InputJsonValue,
     },
     select: {
@@ -195,16 +232,11 @@ async function loadOwnedDeck(userId: string, deckId: string) {
 }
 
 function toHistory(
-  runs: Array<{
-    id: string;
-    mode: string;
-    prompt: string | null;
-    finalAnswer: string | null;
-    createdAt: Date;
-  }>
+  runs: TutorRunRecord[],
+  tutorMode: TutorMode
 ): TutorChatHistoryItem[] {
   return runs
-    .filter((run) => run.mode === "tutor_chat")
+    .filter((run) => run.mode === "tutor_chat" && readTutorMode(run) === tutorMode)
     .reverse()
     .flatMap((run) => {
       const messages: TutorChatHistoryItem[] = [];
@@ -230,14 +262,11 @@ function toHistory(
 }
 
 function toModelHistory(
-  runs: Array<{
-    mode: string;
-    prompt: string | null;
-    finalAnswer: string | null;
-  }>
+  runs: TutorRunRecord[],
+  tutorMode: TutorMode
 ): ChatV1Message[] {
   return runs
-    .filter((run) => run.mode === "tutor_chat")
+    .filter((run) => run.mode === "tutor_chat" && readTutorMode(run) === tutorMode)
     .reverse()
     .flatMap((run) => {
       const messages: ChatV1Message[] = [];
@@ -246,6 +275,27 @@ function toModelHistory(
       return messages;
     })
     .slice(-10);
+}
+
+function readTutorMode(run: { metadata: Prisma.JsonValue | null }): TutorMode {
+  const metadata = (run.metadata && typeof run.metadata === "object" && !Array.isArray(run.metadata)
+    ? run.metadata
+    : null) as Record<string, Prisma.JsonValue> | null;
+
+  if (typeof metadata?.tutorMode === "string") {
+    return normalizeTutorMode(metadata.tutorMode);
+  }
+
+  if (typeof metadata?.path === "string") {
+    try {
+      const parsed = new URL(metadata.path, "https://quickstud-e.local");
+      return normalizeTutorMode(parsed.searchParams.get("mode"));
+    } catch {
+      return "study-plan";
+    }
+  }
+
+  return "study-plan";
 }
 
 function buildContextSnapshot({
@@ -292,6 +342,7 @@ function buildSystemPrompt({
   focusConcept,
   focusReason,
   liveContext,
+  workspaceContext,
   deck,
   studentState,
   recentRuns,
@@ -300,6 +351,7 @@ function buildSystemPrompt({
   focusConcept: string | null;
   focusReason: string | null;
   liveContext: TutorChatSessionContext | null;
+  workspaceContext: WorkspaceContext | null;
   deck: { id: string; title: string; _count: { cards: number } } | null;
   studentState: ReturnType<typeof formatStudentState>;
   recentRuns: Array<{ mode: string; title: string | null; createdAt: Date }>;
@@ -311,20 +363,23 @@ function buildSystemPrompt({
     .join("\n");
 
   return [
-    "You are the persistent QuickStud-E tutor inside the student's workspace.",
-    "Your job is to give calm, bounded instructional guidance that feels continuous across sessions.",
-    "Never claim hidden powers. Never say you changed the queue, updated settings, or took actions on the student's behalf.",
-    "You may explain, suggest, summarize, and recommend a next study move, but you cannot execute study actions.",
-    "Keep answers concise, specific, and educationally useful. Prefer 2 short paragraphs or a short list.",
-    "Avoid the terms AI assistant, agent, planner, system state, or policy unless the student directly asks about internals.",
-    "When relevant, mention continuity naturally, such as prior hesitation, recent recovery, or a stabilized concept.",
-    "If context is thin, say what you can see and ask one targeted follow-up question.",
+    buildWorkspaceConstitutionPrompt([
+      "You are the persistent QuickStud-E tutor inside the student's workspace.",
+      "Your job is to give calm, bounded instructional guidance that feels continuous across sessions.",
+      "Never claim hidden powers. Never say you changed the queue, updated settings, or took actions on the student's behalf.",
+      "You may explain, suggest, summarize, and recommend a next study move, but you cannot execute study actions.",
+      "Keep answers concise, specific, and educationally useful. Prefer 2 short paragraphs or a short list.",
+      "Avoid the terms AI assistant, agent, planner, system state, or policy unless the student directly asks about internals.",
+      "When relevant, mention continuity naturally, such as prior hesitation, recent recovery, or a stabilized concept.",
+      "If context is thin, say what you can see and ask one targeted follow-up question.",
+    ]),
     "",
     `Current route: ${path || "/app"}`,
     `Current deck: ${deck ? `${deck.title} (${deck._count.cards} cards)` : "workspace-wide view"}`,
     `Focus concept: ${focusConcept || "none"}`,
     `Why this focus was chosen: ${focusReason || "not specified"}`,
     `Live study context: ${formatLiveContextSummary(liveContext)}`,
+    `Active workspace context: ${summarizeWorkspaceContext(workspaceContext)}`,
     `World model read: ${formatWorldModelSummary(liveContext)}`,
     `Weak concepts: ${formatList(studentState.weakConcepts, "none recorded")}`,
     `Recent recovery needs: ${formatList(studentState.recentFailures, "none recorded")}`,
@@ -368,6 +423,10 @@ function cleanMessage(value: string | undefined) {
 function cleanQueryValue(value: string | null | undefined) {
   const text = String(value || "").trim();
   return text || null;
+}
+
+function normalizeTutorMode(value: string | null | undefined): TutorMode {
+  return value === "explanation" || value === "quiz-me" ? value : "study-plan";
 }
 
 function formatList(items: string[], fallback: string) {

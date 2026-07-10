@@ -7,18 +7,41 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum SubscriptionPlan {
+  FREE
+  PREMIUM
+  PRO
+}
+
+enum SubscriptionStatus {
+  FREE
+  ACTIVE
+  CANCELED
+  PAST_DUE
+  INCOMPLETE
+  TRIALING
+}
+
 model User {
-  id            String         @id @default(cuid())
-  clerkUserId   String         @unique
-  dailyGoal     Int            @default(50)
-  lastStudyDate DateTime?
-  studyStreak   Int            @default(0)
-  xp            Int            @default(0)
-  xpToday       Int            @default(0)
-  xpTodayDate   DateTime?
-  decks         Deck[]
-  reasoningRuns ReasoningRun[]
-  studentState  StudentState?
+  id                     String             @id @default(cuid())
+  clerkUserId            String             @unique
+  dailyGoal              Int                @default(50)
+  lastStudyDate          DateTime?
+  studyStreak            Int                @default(0)
+  xp                     Int                @default(0)
+  xpToday                Int                @default(0)
+  xpTodayDate            DateTime?
+  plan                   SubscriptionPlan   @default(FREE)
+  subscriptionStatus     SubscriptionStatus @default(FREE)
+  stripeCustomerId       String?            @unique
+  stripeSubscriptionId   String?            @unique
+  stripePriceId          String?
+  currentPeriodEnd       DateTime?
+  monthlyGenerationCount Int                @default(0)
+  usagePeriodStart       DateTime           @default(now())
+  decks                  Deck[]
+  reasoningRuns          ReasoningRun[]
+  studentState           StudentState?
 }
 
 model Deck {

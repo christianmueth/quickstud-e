@@ -8,6 +8,7 @@ import {
   TUTOR_CHAT_SESSION_CONTEXT_STORAGE_KEY,
   type TutorChatSessionContext,
 } from "@/lib/tutorChatSessionContext";
+import { updateWorkspaceContext } from "@/lib/workspaceContext";
 
 type StudyCard = { id: string; question: string; answer: string };
 
@@ -146,6 +147,7 @@ export default function StudyCarousel({
   const [sessionEvents, setSessionEvents] = useState<SessionEvent[]>([]);
   const [sessionComplete, setSessionComplete] = useState(false);
   const router = useRouter();
+  const current = queue[idx] || null;
   const tutorPresence = useMemo(
     () => buildTutorPresence({
       card: current,
@@ -182,8 +184,6 @@ export default function StudyCarousel({
   }, [deckId, focusConcept]);
 
   useEffect(() => { void loadQueue(); }, [loadQueue]);
-
-  const current = queue[idx] || null;
   const progress = useMemo(() => (queue.length ? Math.round(((idx + (current ? 0 : 1)) / queue.length) * 100) : 0), [idx, queue.length, current]);
   const onFlip = useCallback(() => { if (current) setShowBack((s) => !s); }, [current]);
 
@@ -197,6 +197,7 @@ export default function StudyCarousel({
   useEffect(() => {
     const nextContext: TutorChatSessionContext = {
       deckId,
+      updatedAt: new Date().toISOString(),
       focusConcept: focusConcept || null,
       focusReason: focusReason || null,
       queuePosition: current
@@ -239,6 +240,46 @@ export default function StudyCarousel({
 
     window.localStorage.setItem(TUTOR_CHAT_SESSION_CONTEXT_STORAGE_KEY, JSON.stringify(nextContext));
     window.dispatchEvent(new CustomEvent(TUTOR_CHAT_SESSION_CONTEXT_EVENT, { detail: nextContext }));
+    updateWorkspaceContext((currentContext) => ({
+      ...currentContext,
+      activeStudySet: {
+        deckId,
+        focusConcept: focusConcept || null,
+        focusReason: focusReason || null,
+        queuePosition: nextContext.queuePosition,
+        currentCard: nextContext.currentCard,
+        sessionComplete,
+      },
+      weakConcepts: Array.from(new Set([
+        ...(coachResult?.studentState?.weakConcepts || []),
+        ...(coachResult?.weakTopicMatches || []),
+        ...currentContext.weakConcepts,
+      ])).slice(0, 8),
+      misconceptionPatterns: Array.from(new Set([
+        ...(coachResult?.studentState?.misconceptionPatterns || []),
+        ...(coachResult?.misconceptionSignals || []),
+        ...currentContext.misconceptionPatterns,
+      ])).slice(0, 8),
+      tutorMemory: {
+        explanationStyle: coachResult?.studentState?.preferredExplanationStyle || currentContext.tutorMemory?.explanationStyle || null,
+        recentGuidance: Array.from(new Set([
+          coachResult?.selectedStrategy?.label || null,
+          coachResult?.selectedStrategy?.hint || null,
+          ...((currentContext.tutorMemory?.recentGuidance || []).slice(0, 3)),
+        ].filter((item): item is string => Boolean(item && item.trim())))).slice(0, 4),
+      },
+      currentGuidedSession: {
+        answerDraft: nextContext.answerDraft,
+        latestHint: nextContext.latestCoaching?.hint || null,
+        latestRationale: nextContext.latestCoaching?.rationale || null,
+        confidence: nextContext.latestCoaching?.confidence || null,
+        strategyType: nextContext.latestCoaching?.strategyType || null,
+        worldModelExplanation: nextContext.latestCoaching?.worldModelExplanation || null,
+        projectedConfidenceDelta: nextContext.latestCoaching?.projectedConfidenceDelta || null,
+        projectedRecoveryProbability: nextContext.latestCoaching?.projectedRecoveryProbability || null,
+        projectedStabilityGain: nextContext.latestCoaching?.projectedStabilityGain || null,
+      },
+    }));
   }, [
     answerDraft,
     coachResult,

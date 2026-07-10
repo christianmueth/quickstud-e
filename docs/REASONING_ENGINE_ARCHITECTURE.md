@@ -219,6 +219,9 @@ The current product mapping is:
 
 This is the correct current integration boundary.
 
+Serving-path note:
+The live tutoring API now supports an optional LightZero artifact-backed world model through `TUTORING_LIGHTZERO_ARTIFACT_PATH`. If no artifact is configured or validation fails, the serving path falls back to the bounded heuristic world model and records that source in world-model metadata.
+
 Do not force full MCTS tutoring search yet.
 
 ## Muon Role
@@ -413,6 +416,40 @@ Raw lift alone is not enough to justify enabling adaptive authority.
 For implementation-time review of any adaptive change that increases capability or authority, use `docs/ADAPTIVE_CHANGE_REVIEW.md`.
 
 That checklist is intentionally short and strict. It turns the architectural doctrine into a concrete gate for implementation review, rollout review, and future policy upgrades.
+
+## Workspace Constitutional Rule
+
+As workspace features expand, preserve a strict separation between:
+
+- workspace richness
+- operational authority
+
+Richness may increase through:
+
+- better memory continuity
+- stronger explanations
+- multimodal tutoring
+- whiteboard augmentation
+- visual reasoning help
+- guided presentations
+- organizational continuity across study surfaces
+
+Authority does not automatically increase with that richness.
+
+Workspace expansion is safe only while the human remains operationally central.
+
+Do not introduce the following without explicit new governance and earned authority:
+
+- hidden autonomous workflows
+- opaque planner control
+- self-modifying tutoring behavior
+- automatic task execution
+- silent recommendation overrides
+- unrestricted agent loops
+
+The product moat should remain governed adaptive continuity rather than raw autonomy.
+
+That posture is rarer, safer, more deployable, and more trustworthy than unconstrained autonomous behavior.
 
 ## Strategic Constraint
 

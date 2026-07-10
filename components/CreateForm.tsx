@@ -1,10 +1,22 @@
 "use client";
 
+import Link from "next/link";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
 import { upload } from "@vercel/blob/client";
 
-export default function CreateForm() {
+type CreateFormProps = {
+  billingSummary?: {
+    plan: string;
+    isPaid: boolean;
+    monthlyGenerationCount: number;
+    monthlyGenerationLimit: number | null;
+    monthlyGenerationsRemaining: number | null;
+    canGenerate: boolean;
+  };
+};
+
+export default function CreateForm({ billingSummary }: CreateFormProps) {
   const API_BODY_LIMIT = 4 * 1024 * 1024; // ~4MB body limit for serverless; larger videos will be uploaded to Blob
   const [pending, setPending] = useState(false);
   const [contentType, setContentType] = useState<
@@ -219,6 +231,12 @@ export default function CreateForm() {
 
         if (res.status === 504) {
           toast.error(`Preparing this study set took too long. Please retry in a moment.${tid ? ` (traceId: ${tid})` : ""}`);
+          return;
+        }
+
+        if (j?.code === "FREE_PLAN_LIMIT" || j?.code === "PREMIUM_REQUIRED") {
+          toast.error(j?.error || "Upgrade required to continue.");
+          window.location.href = j?.upgradePath || "/app/billing";
           return;
         }
 
@@ -570,13 +588,30 @@ export default function CreateForm() {
         </div>
       </div>
 
-      <button className="px-4 py-2 rounded bg-black text-white disabled:opacity-60" type="submit" disabled={pending}>
-        {pending 
-          ? "Preparing..." 
-          : generationMode === "flashcards" 
-            ? "Build guided review" 
-            : "Build study notes"}
-      </button>
+      {billingSummary && !billingSummary.canGenerate ? (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          <p>
+            You have used {billingSummary.monthlyGenerationCount}
+            {billingSummary.monthlyGenerationLimit ? ` of ${billingSummary.monthlyGenerationLimit}` : ""} monthly AI generations on the free plan.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-3">
+            <Link href="/app/billing" className="rounded-full bg-slate-950 px-4 py-2 text-sm font-medium text-white">
+              Upgrade to Premium
+            </Link>
+            <Link href="/app/billing" className="rounded-full border border-amber-300 px-4 py-2 text-sm font-medium text-amber-900">
+              View billing
+            </Link>
+          </div>
+        </div>
+      ) : (
+        <button className="px-4 py-2 rounded bg-black text-white disabled:opacity-60" type="submit" disabled={pending}>
+          {pending 
+            ? "Preparing..." 
+            : generationMode === "flashcards" 
+              ? "Build guided review" 
+              : "Build study notes"}
+        </button>
+      )}
     </form>
   );
 }

@@ -7,6 +7,9 @@ import { prisma } from "@/lib/db";
 import { summarizeReasoningRuns } from "@/lib/reasoningEngine/analytics";
 import { humanizeMisconceptionCategory } from "@/lib/reasoningEngine/contracts";
 import { formatStudentState } from "@/lib/reasoningEngine/studentState";
+import { buildHumanCenteredRecommendation } from "@/lib/workspaceConstitution";
+import { getLatestPersistedWorkspaceContext } from "@/lib/workspaceContextPersistence";
+import type { WorkspaceContext } from "@/lib/workspaceContext";
 
 type RecentRunRow = {
   id: string;
@@ -196,6 +199,7 @@ export default async function ProgressPage() {
 
   const studentState = studentStateUnavailable ? null : formatStudentState(userRecord.studentState ?? null);
   const analytics = reasoningRunsUnavailable ? null : summarizeReasoningRuns(recentRuns);
+  const persistedWorkspaceContext = (await getLatestPersistedWorkspaceContext(userRecord.id)).context;
   const xpToday = getXpToday(userRecord.xpToday, userRecord.xpTodayDate);
   const confidenceSeries = recentRuns
     .slice(0, 8)
@@ -204,14 +208,14 @@ export default async function ProgressPage() {
       label: `S${index + 1}`,
       value: clampUnit(run.confidence ?? 0),
     }));
-  const recommendedTopics = buildRecommendedTopics(studentState, analytics, decks);
+  const recommendedTopics = buildRecommendedTopics(studentState, analytics, decks, persistedWorkspaceContext);
   const misconceptionCards = buildMisconceptionCards(studentState, analytics);
   const strategyPatterns = analytics?.strategyWinsByMisconception.slice(0, 3) || [];
   const recentWins = studentState?.recentSuccesses.slice(0, 4) || [];
   const recentRecoveryNeeds = studentState?.recentFailures.slice(0, 4) || [];
   const recoveryTimeline = buildRecoveryTimeline(recentRuns);
   const recoverySummary = summarizeRecoveryTimeline(recoveryTimeline);
-  const tutorBrief = buildTutorBrief(studentState, analytics, recoverySummary);
+  const tutorBrief = buildTutorBrief(studentState, analytics, recoverySummary, persistedWorkspaceContext);
   const progressNarrative = buildProgressNarrative(studentState, analytics, recoverySummary, recommendedTopics);
   const progressResumeHref = progressNarrative.resumeHref
     ? replaceHrefReason(progressNarrative.resumeHref, progressNarrative.resumeReason)
@@ -272,7 +276,7 @@ export default async function ProgressPage() {
               <p className="mt-2">{progressNarrative.stillUnstable}</p>
             </div>
             <div className="rounded-2xl border border-sky-100 bg-white/90 p-4 text-sm leading-6 text-gray-700">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-sky-700">What should happen next</p>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-sky-700">Suggested next pass</p>
               <p className="mt-2">{progressNarrative.nextStep}</p>
               {progressResumeHref ? (
                 <div className="mt-4">
@@ -332,7 +336,7 @@ export default async function ProgressPage() {
         <div className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm">
           <h2 className="text-xl font-semibold text-gray-950">Recommended next topics</h2>
           <p className="mt-2 text-sm leading-6 text-gray-600">
-            These recommendations are derived from your recent weak concepts, misconceptions, and study outcomes.
+            These are bounded, visible next-step suggestions based on your recent weak concepts, misconceptions, study outcomes, and active workspace thread. They preserve continuity without taking control of your study flow.
           </p>
           <div className="mt-5 space-y-3">
             {recommendedTopics.length === 0 ? (
@@ -348,7 +352,7 @@ export default async function ProgressPage() {
                   {topic.href ? (
                     <div className="mt-4 flex items-center justify-between gap-3">
                       <p className="text-xs text-gray-500">
-                        {topic.actionLabel === "Resume this concept" ? "Focuses the study queue on the closest matching deck material." : "Returns you to a relevant study flow with the current recommendation context."}
+                        {topic.actionLabel === "Resume this concept" ? "Opens the closest matching deck material so you can continue that concept deliberately." : "Opens a relevant study flow with the current recommendation context so you can continue or redirect it."}
                       </p>
                       <Link
                         href={topic.href}
@@ -601,12 +605,13 @@ function clampUnit(value: number): number {
 function buildRecommendedTopics(
   studentState: ReturnType<typeof formatStudentState> | null,
   analytics: ReturnType<typeof summarizeReasoningRuns> | null,
-  decks: Array<{ id: string; title: string; cards: Array<{ question: string; answer: string }> }>
+  decks: Array<{ id: string; title: string; cards: Array<{ question: string; answer: string }> }>,
+  workspaceContext: WorkspaceContext | null
 ) {
   const topics = (studentState?.weakConcepts || []).slice(0, 3).map((concept) => ({
     title: titleCase(concept),
     badge: "Weak topic",
-    reason: "This concept has appeared in your recent weak-topic memory, so it is a good candidate for targeted review and short verification cycles.",
+    reason: buildHumanCenteredRecommendation("This concept has appeared in your recent weak-topic memory, so it is a good candidate for targeted review and short verification cycles."),
     recommendationKey: concept,
     actionLabel: "Resume this concept",
   }));
@@ -616,7 +621,7 @@ function buildRecommendedTopics(
     topics.push({
       title: humanizeMisconceptionCategory(misconception.category),
       badge: "Recovery focus",
-      reason: "This misconception pattern has appeared most often in recent study history, so extra worked examples and slower step-by-step tutoring are likely to help.",
+      reason: buildHumanCenteredRecommendation("This misconception pattern has appeared most often in recent study history, so extra worked examples and slower step-by-step tutoring are likely to help."),
       recommendationKey: misconception.category,
       actionLabel: "Continue recovery",
     });
@@ -627,9 +632,25 @@ function buildRecommendedTopics(
     topics.push({
       title: "Recent difficult prompt",
       badge: "Revisit",
-      reason: trimText(recentFailure, 132),
+      reason: buildHumanCenteredRecommendation(trimText(recentFailure, 132)),
       recommendationKey: recentFailure,
       actionLabel: "Revisit this prompt",
+    });
+  }
+
+  const activeWorkspaceKey = workspaceContext?.activeStudySet?.focusConcept
+    || workspaceContext?.whiteboardReference?.workspaceGoal
+    || workspaceContext?.presentationReference?.objective
+    || workspaceContext?.presentationReference?.title
+    || null;
+
+  if (activeWorkspaceKey) {
+    topics.unshift({
+      title: "Active workspace thread",
+      badge: "Workspace carry-over",
+      reason: buildWorkspaceRecommendationReason(workspaceContext),
+      recommendationKey: activeWorkspaceKey,
+      actionLabel: "Resume this thread",
     });
   }
 
@@ -663,7 +684,8 @@ function buildMisconceptionCards(
 function buildTutorBrief(
   studentState: ReturnType<typeof formatStudentState> | null,
   analytics: ReturnType<typeof summarizeReasoningRuns> | null,
-  recoverySummary: string | null
+  recoverySummary: string | null,
+  workspaceContext: WorkspaceContext | null
 ) {
   const weakConcept = studentState?.weakConcepts[0];
   const misconception = analytics?.byMisconception[0]?.category || studentState?.misconceptionPatterns[0] || null;
@@ -684,6 +706,11 @@ function buildTutorBrief(
       : "The tutor does not yet have enough recovery evidence to make a strong intervention call, so the next best move is another focused study session with answer-first coaching.";
 
   const cues = [
+    workspaceContext?.whiteboardReference?.boardName
+      ? `Current workspace anchor: ${workspaceContext.whiteboardReference.boardName}${workspaceContext.whiteboardReference.workspaceGoal ? ` is tracking ${workspaceContext.whiteboardReference.workspaceGoal}.` : "."}`
+      : workspaceContext?.presentationReference?.title
+        ? `Current workspace anchor: presentation draft ${workspaceContext.presentationReference.title} is still active in your study workspace.`
+        : "No active workspace artifact is currently dominating your study context.",
     misconception
       ? `Most common recent difficulty: ${humanizeMisconceptionCategory(misconception)}.`
       : "No dominant misconception has taken over your recent study history yet.",
@@ -721,7 +748,7 @@ function buildProgressNarrative(
       : nextTopic?.reason || "Your recent study history is starting to form a clearer learning narrative, so the next step should reinforce one concept rather than scatter attention across the whole library.",
     whatChanged: recentSuccess
       ? `A recent win suggests part of the material is becoming easier to retrieve, which means the tutor can now build on momentum instead of only reacting to struggle. ${trimText(recentSuccess, 120)}`
-      : `The strongest change is structural: the tutor has enough history to stop giving generic next steps and start anchoring guidance around ${topicLabel}.`,
+      : `The strongest change is structural: there is now enough history to stop giving generic next steps and start anchoring guidance around ${topicLabel}.`,
     stillUnstable: recentFailure
       ? `${trimText(recentFailure, 132)} still needs reinforcement, so the tutor should treat it as active learning work rather than a finished topic.`
       : misconception
@@ -732,17 +759,17 @@ function buildProgressNarrative(
     nextStep: weakConcept
       ? `Start the next guided pass with ${topicLabel}, and if the explanation begins to slow down again, use coaching early instead of waiting until the end of the session.`
       : nextTopic
-        ? `Use the next guided session to resume ${nextTopic.title.toLowerCase()} directly so the current recovery thread is not lost between visits.`
+        ? `Use the next guided session to resume ${nextTopic.title.toLowerCase()} directly so the current recovery thread stays intact between visits.`
         : `Run one short guided session and stay with the first concept that feels shaky until the explanation becomes cleaner, not merely familiar.`,
     resumeHref: nextTopic?.href || null,
     resumeLabel: nextTopic?.actionLabel || "Resume the next weak point",
     resumeReason: recentFailure
-      ? `${trimText(recentFailure, 132)} is still unresolved, so the tutor is sending you back into that exact weak point instead of widening the session.`
+      ? `${trimText(recentFailure, 132)} is still unresolved, so the clearest next move is to revisit that exact weak point instead of widening the session.`
       : misconception
-        ? `${topicLabel} still destabilizes around ${humanizeMisconceptionCategory(misconception).toLowerCase()}, so the tutor wants a targeted revisit before treating the topic as secure.`
+        ? `${topicLabel} still destabilizes around ${humanizeMisconceptionCategory(misconception).toLowerCase()}, so the clearest next move is a targeted revisit before treating the topic as secure.`
         : lowConfidenceStreak > 0
-          ? `${topicLabel} is still inside a low-confidence stretch, so the tutor is reopening the same thread while the friction point is still identifiable.`
-          : `${topicLabel} looks close to stable, but one more focused revisit will tell the tutor whether the improvement is durable or only recent.`,
+          ? `${topicLabel} is still inside a low-confidence stretch, so the next pass should reopen the same thread while the friction point is still identifiable.`
+          : `${topicLabel} looks close to stable, but one more focused revisit will clarify whether the improvement is durable or only recent.`,
   };
 }
 
@@ -919,4 +946,24 @@ function rankConceptMatch(value: string, query: string): number {
     if (haystack.includes(token)) score += 1;
   }
   return score;
+}
+
+function buildWorkspaceRecommendationReason(workspaceContext: WorkspaceContext | null) {
+  if (!workspaceContext) {
+    return buildHumanCenteredRecommendation("Your current workspace thread is active, so the next study pass should pick up the same concept instead of starting a different topic.");
+  }
+
+  if (workspaceContext.activeStudySet?.focusConcept) {
+    return buildHumanCenteredRecommendation(`Your active guided session is already centered on ${titleCase(workspaceContext.activeStudySet.focusConcept)}, so the next recommendation should preserve that thread instead of resetting context.`);
+  }
+
+  if (workspaceContext.whiteboardReference?.workspaceGoal) {
+    return buildHumanCenteredRecommendation(`Your whiteboard is currently organized around ${workspaceContext.whiteboardReference.workspaceGoal}, so the next study pass should reconnect to that workspace goal while it is still active.`);
+  }
+
+  if (workspaceContext.presentationReference?.objective) {
+    return buildHumanCenteredRecommendation(`Your presentation draft is targeting ${workspaceContext.presentationReference.objective}, so the next recommendation should reinforce that same explanatory thread.`);
+  }
+
+  return buildHumanCenteredRecommendation("Your workspace still has an active thread, so the next recommendation should preserve it instead of widening focus.");
 }

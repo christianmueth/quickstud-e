@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/db";
+import { getBillingSnapshot } from "@/lib/billing";
 
 export async function GET() {
   try {
     const { userId } = await auth();
     if (!userId) {
-      return NextResponse.json({ ok: true, signedIn: false, xp: 0, streak: 0, xpToday: 0, dailyGoal: 50 });
+      return NextResponse.json({ ok: true, signedIn: false, xp: 0, streak: 0, xpToday: 0, dailyGoal: 50, plan: "FREE", monthlyGenerationsRemaining: 0 });
     }
 
     // Don't "select" fields you haven't migrated yet.
@@ -22,6 +23,8 @@ export async function GET() {
       if (Number(d) === Number(today)) xpToday = user?.xpToday ?? 0;
     }
 
+    const billing = await getBillingSnapshot(userId);
+
     return NextResponse.json({
       ok: true,
       signedIn: true,
@@ -29,9 +32,11 @@ export async function GET() {
       streak: user?.studyStreak ?? 0,
       xpToday,
       dailyGoal: goal,
+      plan: billing.plan,
+      monthlyGenerationsRemaining: billing.monthlyGenerationsRemaining,
     });
   } catch {
     // Always return JSON
-    return NextResponse.json({ ok: false, signedIn: false, xp: 0, streak: 0, xpToday: 0, dailyGoal: 50 });
+    return NextResponse.json({ ok: false, signedIn: false, xp: 0, streak: 0, xpToday: 0, dailyGoal: 50, plan: "FREE", monthlyGenerationsRemaining: 0 });
   }
 }

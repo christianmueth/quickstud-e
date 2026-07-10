@@ -36,6 +36,7 @@ type CoachingContext = {
     score?: number;
     confidence?: number;
     strategyType?: string;
+    strategyMode?: string;
   };
 };
 

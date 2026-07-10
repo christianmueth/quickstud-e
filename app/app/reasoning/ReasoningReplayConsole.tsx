@@ -34,6 +34,16 @@ type ReasoningRun = {
   metadata: {
     weakTopicMatches: string[];
     misconceptionSignals: string[];
+    worldModel?: {
+      version?: string;
+      source?: "bounded_heuristic" | "lightzero_artifact";
+      selectedPolicyLabel?: string | null;
+      selectedTransition?: {
+        projectedRecoveryProbability?: number;
+        projectedStabilityGain?: number;
+        projectedLowConfidenceRisk?: number;
+      };
+    } | null;
     verification: {
       final_answer: string;
       reasoning: string;
@@ -48,6 +58,8 @@ type ReasoningRun = {
       scorerKind: string;
       blendWeight: number;
       abstainThreshold: number;
+      worldModelBlendWeight?: number;
+      worldModelRiskPenalty?: number;
       heuristicSelectedStrategyId: string;
       adaptiveSelectedStrategyId: string;
       effectiveSelectedStrategyId: string;
@@ -59,8 +71,17 @@ type ReasoningRun = {
         heuristicScore: number;
         artifactValueScore: number;
         blendedScore: number;
+        worldModelScore?: number | null;
+        worldModelProjectedRecoveryProbability?: number | null;
+        worldModelProjectedStabilityGain?: number | null;
+        worldModelProjectedConfidenceDelta?: number | null;
+        worldModelProjectedLowConfidenceRisk?: number | null;
+        muonHelperScore?: number | null;
+        finalScore?: number | null;
+        helperSupport?: number | null;
         heuristicSelected: boolean;
         adaptiveSelected: boolean;
+        muonHelperSelected?: boolean;
       }>;
     } | null;
   };
@@ -683,6 +704,12 @@ export default function ReasoningReplayConsole() {
                 <div className="flex flex-wrap gap-2 text-xs text-violet-900">
                   <Badge>blend {formatScore(selectedRun.metadata.adaptivePolicy.blendWeight)}</Badge>
                   <Badge>abstain {formatScore(selectedRun.metadata.adaptivePolicy.abstainThreshold)}</Badge>
+                  {typeof selectedRun.metadata.adaptivePolicy.worldModelBlendWeight === "number" ? (
+                    <Badge>wm blend {formatScore(selectedRun.metadata.adaptivePolicy.worldModelBlendWeight)}</Badge>
+                  ) : null}
+                  {selectedRun.metadata.worldModel?.source ? (
+                    <Badge>{selectedRun.metadata.worldModel.source === "lightzero_artifact" ? "wm LightZero" : "wm heuristic"}</Badge>
+                  ) : null}
                   <Badge>{selectedRun.metadata.adaptivePolicy.overrideApplied ? "override applied" : selectedRun.metadata.adaptivePolicy.disagreement ? "shadow disagreement" : "no disagreement"}</Badge>
                 </div>
               </div>
@@ -691,6 +718,23 @@ export default function ReasoningReplayConsole() {
                 <MiniStat label="Adaptive choice" value={selectedRun.metadata.adaptivePolicy.adaptiveSelectedStrategyId || "none"} />
                 <MiniStat label="Effective choice" value={selectedRun.metadata.adaptivePolicy.effectiveSelectedStrategyId || "none"} />
               </div>
+              {selectedRun.metadata.worldModel ? (
+                <div className="grid gap-3 md:grid-cols-3">
+                  <MiniStat label="World model" value={selectedRun.metadata.worldModel.selectedPolicyLabel || selectedRun.metadata.worldModel.version || "unknown"} />
+                  <MiniStat
+                    label="WM selected recovery"
+                    value={typeof selectedRun.metadata.worldModel.selectedTransition?.projectedRecoveryProbability === "number"
+                      ? formatPercent(selectedRun.metadata.worldModel.selectedTransition.projectedRecoveryProbability)
+                      : "n/a"}
+                  />
+                  <MiniStat
+                    label="WM selected risk"
+                    value={typeof selectedRun.metadata.worldModel.selectedTransition?.projectedLowConfidenceRisk === "number"
+                      ? formatPercent(selectedRun.metadata.worldModel.selectedTransition.projectedLowConfidenceRisk)
+                      : "n/a"}
+                  />
+                </div>
+              ) : null}
               <div className="space-y-3">
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-violet-900">Candidate score trace</p>
                 <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
@@ -700,11 +744,24 @@ export default function ReasoningReplayConsole() {
                         <Badge strong={candidate.heuristicSelected || candidate.adaptiveSelected}>{candidate.strategyId}</Badge>
                         {candidate.heuristicSelected ? <Badge>heuristic</Badge> : null}
                         {candidate.adaptiveSelected ? <Badge>adaptive</Badge> : null}
+                        {candidate.muonHelperSelected ? <Badge>muon</Badge> : null}
                       </div>
                       <div className="mt-3 space-y-1 text-sm text-violet-950">
                         <div>heuristic {formatScore(candidate.heuristicScore)}</div>
                         <div>artifact {formatScore(candidate.artifactValueScore)}</div>
                         <div>blended {formatScore(candidate.blendedScore)}</div>
+                        {typeof candidate.worldModelScore === "number" ? <div>world model {formatScore(candidate.worldModelScore)}</div> : null}
+                        {typeof candidate.muonHelperScore === "number" ? <div>muon {formatScore(candidate.muonHelperScore)}</div> : null}
+                        {typeof candidate.finalScore === "number" ? <div>final {formatScore(candidate.finalScore)}</div> : null}
+                        {typeof candidate.worldModelProjectedRecoveryProbability === "number" ? (
+                          <div>wm recovery {formatPercent(candidate.worldModelProjectedRecoveryProbability)}</div>
+                        ) : null}
+                        {typeof candidate.worldModelProjectedStabilityGain === "number" ? (
+                          <div>wm stability {formatPercent(candidate.worldModelProjectedStabilityGain)}</div>
+                        ) : null}
+                        {typeof candidate.worldModelProjectedLowConfidenceRisk === "number" ? (
+                          <div>wm low-confidence risk {formatPercent(candidate.worldModelProjectedLowConfidenceRisk)}</div>
+                        ) : null}
                       </div>
                     </div>
                   ))}

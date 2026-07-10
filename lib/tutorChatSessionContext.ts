@@ -1,8 +1,10 @@
 export const TUTOR_CHAT_SESSION_CONTEXT_STORAGE_KEY = "quickstud:tutor-chat-session-context";
 export const TUTOR_CHAT_SESSION_CONTEXT_EVENT = "quickstud:tutor-chat-session-context";
+const TUTOR_CHAT_SESSION_CONTEXT_MAX_AGE_MS = 15 * 60 * 1000;
 
 export type TutorChatSessionContext = {
   deckId: string;
+  updatedAt: string;
   focusConcept: string | null;
   focusReason: string | null;
   queuePosition: {
@@ -39,10 +41,13 @@ export function sanitizeTutorChatSessionContext(value: unknown): TutorChatSessio
   const latestCoaching = asRecord(record.latestCoaching);
 
   const deckId = toStringValue(record.deckId);
+  const updatedAt = toIsoStringValue(record.updatedAt);
   if (!deckId) return null;
+  if (!updatedAt) return null;
 
   return {
     deckId,
+    updatedAt,
     focusConcept: toStringValue(record.focusConcept),
     focusReason: toStringValue(record.focusReason),
     queuePosition:
@@ -80,6 +85,15 @@ export function sanitizeTutorChatSessionContext(value: unknown): TutorChatSessio
   };
 }
 
+export function isTutorChatSessionContextFresh(value: TutorChatSessionContext | null, now = Date.now()) {
+  if (!value?.updatedAt) return false;
+
+  const updatedAtMs = Date.parse(value.updatedAt);
+  if (!Number.isFinite(updatedAtMs)) return false;
+
+  return now - updatedAtMs <= TUTOR_CHAT_SESSION_CONTEXT_MAX_AGE_MS;
+}
+
 function asRecord(value: unknown) {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
 }
@@ -93,4 +107,12 @@ function toStringArray(value: unknown) {
   return Array.isArray(value)
     ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
     : [];
+}
+
+function toIsoStringValue(value: unknown) {
+  const text = typeof value === "string" ? value.trim() : "";
+  if (!text) return null;
+
+  const parsed = Date.parse(text);
+  return Number.isFinite(parsed) ? new Date(parsed).toISOString() : null;
 }

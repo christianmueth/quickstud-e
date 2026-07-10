@@ -6,6 +6,8 @@ QuickStud-E is a reasoning-time search/planning system, not a single-pass chatbo
 
 Product positioning: QuickStud-E is a replay-governed adaptive tutoring platform. It uses LLMs for tutoring, persistent student-state modeling for personalization, and MuZero/LightZero-inspired replay and value evaluation to improve tutoring decisions under strict governance.
 
+Current production truth: tutoring uses a bounded heuristic world model by default, plus a Muon-style helper loop and replay-governed reranking. A LightZero-trained world model can now be loaded into the live scorer through `TUTORING_LIGHTZERO_ARTIFACT_PATH`, but LightZero is not in the serving path unless that artifact is explicitly configured.
+
 Avoid claiming that the product is already a full autonomous MuZero agent. The correct claim is that the product uses MuZero-style principles such as policy priors, candidate actions, value estimation, replay, and governed rollout evaluation.
 
 The implementation contract for that architecture lives in `docs/REASONING_ENGINE_ARCHITECTURE.md`.
@@ -35,7 +37,14 @@ The current production posture is:
 
 - `TUTORING_ADAPTIVE_RERANK_SHADOW=1`
 - `TUTORING_ADAPTIVE_RERANK_ENABLED=0`
+- `TUTORING_LIGHTZERO_ARTIFACT_PATH=<optional path to offline-trained LightZero world-model artifact JSON>`
 - `INTERNAL_OPERATOR_CLERK_USER_IDS=<comma-separated Clerk user ids for replay/governance access>`
+- `STRIPE_SECRET_KEY=<server-side Stripe secret>`
+- `STRIPE_WEBHOOK_SECRET=<Stripe webhook signing secret>`
+- `STRIPE_PREMIUM_PRICE_ID=<monthly Premium price id>`
+- `STRIPE_PRO_PRICE_ID=<optional monthly Pro price id>`
+- `NEXT_PUBLIC_APP_URL=<canonical app origin for checkout and portal redirects>`
+- `FREE_PLAN_MONTHLY_GENERATION_LIMIT=5`
 
 That means the website ships as a complete tutoring product with live adaptive shadow scoring, while heuristic tutoring remains authoritative until replay evidence justifies a bounded trial.
 
@@ -53,6 +62,8 @@ Deployable product features now include:
 - exportable shadow datasets
 
 Full MCTS or autonomous planner authority is intentionally not yet authoritative in the live product.
+
+Subscription billing is now wired for Clerk-authenticated users through Stripe Checkout, Stripe Billing Portal, and `/api/webhooks/stripe`. After pulling these changes, run the Prisma migration in each environment before enabling the billing page publicly.
 
 ## Getting Started
 

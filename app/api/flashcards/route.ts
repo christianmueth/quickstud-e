@@ -12,6 +12,7 @@ import { parseYouTube } from "@/lib/youtube";
 import { createReasoningEngine } from "@/lib/reasoningEngine/engine";
 import { persistFlashcardReasoningRun } from "@/lib/reasoningEngine/persistence";
 import { getStudentKnowledgeState } from "@/lib/reasoningEngine/studentState";
+import { buildFreePlanLimitMessage, getBillingSnapshot, getGenerationAccess, incrementGenerationUsage } from "@/lib/billing";
 
 export const runtime = "nodejs";         // node runtime to allow larger bodies locally
 export const dynamic = "force-dynamic";
@@ -34,7 +35,6 @@ const YOUTUBE_ALLOW_LEGACY_FALLBACKS = process.env.YOUTUBE_ALLOW_LEGACY_FALLBACK
 // Default higher than 1200: structured JSON for 20+ cards can otherwise truncate mid-object,
 // producing invalid JSON and failing parsing.
 const OPENAI_MAX_OUTPUT_TOKENS = Number(process.env.OPENAI_MAX_OUTPUT_TOKENS || 2600);
-const MAX_DECKS_PER_DAY = Number(process.env.MAX_DECKS_PER_DAY || 50);
 
 const MAX_Q_CHARS = Number(process.env.FLASHCARDS_MAX_Q_CHARS || 140);
 const MAX_A_CHARS = Number(process.env.FLASHCARDS_MAX_A_CHARS || 220);
@@ -1082,8 +1082,8 @@ async function generateCardsWithOpenAI(
   count = DEFAULT_CARD_COUNT,
   opts?: { preferQa?: boolean }
 ) {
-  if (!process.env.RUNPOD_API_KEY) {
-    console.warn("[Cards] RunPod API key not configured, using fallback");
+  if (!process.env.OPENAI_API_KEY) {
+    console.warn("[Cards] OpenAI API key not configured, using fallback");
     return null;
   }
   
@@ -1106,7 +1106,7 @@ async function generateCardsWithOpenAI(
   // to force structured output from this endpoint. Default ON; allow opt-out.
   const useGuidedJson = process.env.FLASHCARDS_USE_GUIDED_JSON !== "0";
   console.log(
-    `[Cards] Guided JSON mode=${useGuidedJson ? "on" : "off"} (FLASHCARDS_USE_GUIDED_JSON=${process.env.FLASHCARDS_USE_GUIDED_JSON ?? "(default)"}, RUNPOD_GUIDED_JSON=${process.env.RUNPOD_GUIDED_JSON || "0"})`
+    `[Cards] Guided JSON mode=${useGuidedJson ? "on" : "off"} (FLASHCARDS_USE_GUIDED_JSON=${process.env.FLASHCARDS_USE_GUIDED_JSON ?? "(default)"})`
   );
   const makeGuidedJson = (n: number) =>
     useGuidedJson
@@ -1138,7 +1138,7 @@ async function generateCardsWithOpenAI(
         }
       : undefined;
 
-  const modelName = process.env.RUNPOD_MODEL || "deepseek-r1";
+  const modelName = process.env.OPENAI_MODEL || MODEL;
   // For transcripts (esp. YouTube), JSON output often breaks due to unescaped quotes.
   // Q/A mode tends to be faster and more parseable for transcript-like sources.
   // Allow disabling globally via FLASHCARDS_QA_MODE=0, but still allow a caller hint.
@@ -1881,19 +1881,16 @@ export async function POST(req: Request) {
 
     const clerkUserId = userId ?? undefined;
 
-    // In production we should not silently fall back if RunPod isn't configured.
+    // In production we should not silently fall back if OpenAI isn't configured.
     if (process.env.NODE_ENV === "production") {
-      const missingEndpoint = !process.env.RUNPOD_ENDPOINT;
-      const missingApiKey = !process.env.RUNPOD_API_KEY;
-      const missingRunpod = missingEndpoint || missingApiKey;
-      if (missingRunpod) {
+      const missingApiKey = !process.env.OPENAI_API_KEY;
+      if (missingApiKey) {
         return NextResponse.json(
           {
-            error: "RunPod is not configured on the server. Set RUNPOD_ENDPOINT and RUNPOD_API_KEY in Vercel environment variables.",
-            code: "RUNPOD_NOT_CONFIGURED",
+            error: "OpenAI is not configured on the server. Set OPENAI_API_KEY in Vercel environment variables.",
+            code: "OPENAI_NOT_CONFIGURED",
             missing: {
-              RUNPOD_ENDPOINT: missingEndpoint,
-              RUNPOD_API_KEY: missingApiKey,
+              OPENAI_API_KEY: missingApiKey,
             },
             vercel: {
               VERCEL_ENV: process.env.VERCEL_ENV || null,
@@ -1907,25 +1904,26 @@ export async function POST(req: Request) {
     }
 
     const form = await timeIt("form_data_ms", async () => req.formData());
-    
-    // Enforce per-user daily deck creation limit (skip in test mode)
+
     if (!isTestMode) {
-      try {
-        const rlStart = Date.now();
-        const startOfDay = new Date();
-        startOfDay.setHours(0, 0, 0, 0);
-        const createdToday = await prisma.deck.count({
-          where: { user: { clerkUserId: userId! }, createdAt: { gte: startOfDay } },
-        });
-        timings.rate_limit_ms = Math.max(0, Date.now() - rlStart);
-        if (createdToday >= MAX_DECKS_PER_DAY) {
-          return respondJson(
-            { error: `Daily limit reached. You can create up to ${MAX_DECKS_PER_DAY} decks per day.`, code: "RATE_LIMIT" },
-            { status: 429 }
-          );
-        }
-      } catch (e) {
-        console.warn("[RateLimit] Failed to check daily limit:", (e as any)?.message || e);
+      const billingAccessStart = Date.now();
+      const access = await getGenerationAccess(userId!);
+      timings.rate_limit_ms = Math.max(0, Date.now() - billingAccessStart);
+      if (!access.allowed) {
+        return respondJson(
+          {
+            error: buildFreePlanLimitMessage(access.snapshot),
+            code: "FREE_PLAN_LIMIT",
+            upgradePath: "/app/billing",
+            billing: {
+              plan: access.snapshot.plan,
+              monthlyGenerationCount: access.snapshot.monthlyGenerationCount,
+              monthlyGenerationLimit: access.snapshot.monthlyGenerationLimit,
+              monthlyGenerationsRemaining: access.snapshot.monthlyGenerationsRemaining,
+            },
+          },
+          { status: 402 }
+        );
       }
     }
 
@@ -2758,11 +2756,8 @@ export async function POST(req: Request) {
     }
 
     // Ensure user
-    const userRow = await timeIt("db_user_upsert_ms", async () =>
-      prisma.user.upsert({
-        where: { clerkUserId }, update: {}, create: { clerkUserId: clerkUserId! },
-      })
-    );
+    const billingSnapshot = await timeIt("db_user_upsert_ms", async () => getBillingSnapshot(clerkUserId!));
+    const userRow = billingSnapshot.user;
 
     // Create deck
     let deckId: string;
@@ -2804,6 +2799,8 @@ export async function POST(req: Request) {
         })
       );
     }
+
+    await timeIt("db_usage_increment_ms", async () => incrementGenerationUsage(userRow.id));
 
     const redirectUrl = new URL(`/app/deck/${deckId}`, req.url);
     redirectUrl.searchParams.set("origin", origin);

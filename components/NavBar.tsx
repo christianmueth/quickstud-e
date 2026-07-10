@@ -24,6 +24,12 @@ export default function NavBar() {
             <Link href="/app" className="text-sm px-3 py-1.5 rounded border hover:bg-gray-50">
               Study
             </Link>
+            <Link href="/app/billing" className="text-sm px-3 py-1.5 rounded border hover:bg-gray-50">
+              Billing
+            </Link>
+            <Link href="/app/workspace" className="text-sm px-3 py-1.5 rounded border hover:bg-gray-50">
+              Workspace
+            </Link>
             <Link href="/app/progress" className="text-sm px-3 py-1.5 rounded border hover:bg-gray-50">
               Progress
             </Link>

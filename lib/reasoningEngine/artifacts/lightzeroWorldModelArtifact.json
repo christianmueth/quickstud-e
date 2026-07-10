@@ -1,0 +1,117 @@
+{
+  "policyVersion": "lightzero_world_model_v1",
+  "selectedPolicyLabel": "lightzero-linear-synthetic-seed-v1",
+  "scorerKind": "lightzero_linear_world_model_v1",
+  "featureSchema": "tutoring_world_model_features_v1",
+  "sourceEvaluation": {
+    "script": "scripts/train-lightzero-world-model-artifact.mjs",
+    "checkpoint": "synthetic_seed:500_runs:2500_candidates",
+    "notes": "epochs=1200, learning_rate=0.04, l2=0.0015"
+  },
+  "heads": {
+    "projectedRecoveryProbability": {
+      "intercept": -0.373836,
+      "weights": {
+        "strategyConfidence": 0.132882,
+        "priorLocalSuccessRate": 0.560861,
+        "misconceptionAlignment": 0.218146,
+        "noveltyScore": 0.272635,
+        "lowCognitiveLoad": 0.458961,
+        "hintGranularity": -0.018533,
+        "overallConfidence": 0.718519,
+        "retentionStrength": -0.214542,
+        "lowConfidenceRisk": -0.268753,
+        "verificationConfidence": 0.718519,
+        "weakTopicCount": 0.058911,
+        "misconceptionCount": -0.022452
+      },
+      "strategyModeBias": {
+        "exploration": -0.042419,
+        "repair": 0.007194,
+        "reinforcement": 0.014901
+      },
+      "shortStepBias": -0.010718,
+      "mediumStepBias": -0.004199,
+      "longStepBias": 0.019581,
+      "trainingMae": 0.346831
+    },
+    "projectedConfidenceDelta": {
+      "intercept": -0.286557,
+      "weights": {
+        "strategyConfidence": 0.029238,
+        "priorLocalSuccessRate": 0.192543,
+        "misconceptionAlignment": 0.095793,
+        "noveltyScore": 0.060359,
+        "lowCognitiveLoad": 0.19287,
+        "hintGranularity": 0.006964,
+        "overallConfidence": 0.167043,
+        "retentionStrength": -0.083609,
+        "lowConfidenceRisk": -0.013199,
+        "verificationConfidence": 0.167043,
+        "weakTopicCount": 0.038934,
+        "misconceptionCount": -0.001928
+      },
+      "strategyModeBias": {
+        "exploration": -0.005022,
+        "repair": -0.001597,
+        "reinforcement": 0.007047
+      },
+      "shortStepBias": -0.00571,
+      "mediumStepBias": -0.000352,
+      "longStepBias": 0.007263,
+      "trainingMae": 0.134266
+    },
+    "projectedStabilityGain": {
+      "intercept": -0.299653,
+      "weights": {
+        "strategyConfidence": 0.008855,
+        "priorLocalSuccessRate": 0.399008,
+        "misconceptionAlignment": 0.180004,
+        "noveltyScore": 0.129884,
+        "lowCognitiveLoad": 0.426696,
+        "hintGranularity": 0.009328,
+        "overallConfidence": 0.645584,
+        "retentionStrength": -0.159696,
+        "lowConfidenceRisk": -0.191158,
+        "verificationConfidence": 0.645584,
+        "weakTopicCount": 0.063582,
+        "misconceptionCount": -0.019698
+      },
+      "strategyModeBias": {
+        "exploration": -0.002748,
+        "repair": -0.004954,
+        "reinforcement": 0.014677
+      },
+      "shortStepBias": -0.014134,
+      "mediumStepBias": 0.002271,
+      "longStepBias": 0.016011,
+      "trainingMae": 0.224258
+    },
+    "projectedLowConfidenceRisk": {
+      "intercept": 0.911774,
+      "weights": {
+        "strategyConfidence": -0.013295,
+        "priorLocalSuccessRate": -0.156103,
+        "misconceptionAlignment": -0.073822,
+        "noveltyScore": -0.04573,
+        "lowCognitiveLoad": -0.157628,
+        "hintGranularity": -0.009089,
+        "overallConfidence": -0.367317,
+        "retentionStrength": -0.146791,
+        "lowConfidenceRisk": 0.314149,
+        "verificationConfidence": -0.367317,
+        "weakTopicCount": -0.025917,
+        "misconceptionCount": 0.006444
+      },
+      "strategyModeBias": {
+        "exploration": 0.002458,
+        "repair": 0.001974,
+        "reinforcement": -0.006298
+      },
+      "shortStepBias": 0.004944,
+      "mediumStepBias": 0.00069,
+      "longStepBias": -0.006497,
+      "trainingMae": 0.103359
+    }
+  }
+}
