@@ -3,6 +3,7 @@ import { auth, currentUser } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/db";
 import { getBillingSnapshot, getCheckoutPlanConfig, type CheckoutPlanKey } from "@/lib/billing";
 import { getStripe } from "@/lib/stripe";
+import { resolveStripeCustomerId } from "@/lib/stripeCustomers";
 
 export const runtime = "nodejs";
 
@@ -64,21 +65,13 @@ export async function POST(req: Request) {
     || undefined;
   const stripe = getStripe();
 
-  let customerId = billing.user.stripeCustomerId;
-  if (!customerId) {
-    const customer = await stripe.customers.create({
-      email,
-      metadata: {
-        clerkUserId,
-        appUserId: billing.user.id,
-      },
-    });
-    customerId = customer.id;
-    await prisma.user.update({
-      where: { id: billing.user.id },
-      data: { stripeCustomerId: customer.id },
-    }).catch(() => null);
-  }
+  const customerId = await resolveStripeCustomerId({
+    stripe,
+    clerkUserId,
+    appUserId: billing.user.id,
+    email,
+    persistedCustomerId: billing.user.stripeCustomerId,
+  });
 
   const baseUrl = getBaseUrl(req);
   const session = await stripe.checkout.sessions.create({
