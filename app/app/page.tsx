@@ -168,7 +168,6 @@ export default async function AppPage({
         <div className="rounded-3xl border border-sky-200 bg-gradient-to-br from-sky-50 via-white to-cyan-50 p-6 shadow-sm">
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-700">Tutor framing</p>
           <h1 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950">{workspaceTutorBrief.headline}</h1>
-          <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-700">{workspaceTutorBrief.summary}</p>
           <div className="mt-5 grid gap-3 md:grid-cols-3">
             {workspaceTutorBrief.cues.map((cue) => (
               <div key={cue} className="rounded-2xl border border-sky-100 bg-white/90 p-4 text-sm leading-6 text-slate-700">
@@ -187,8 +186,8 @@ export default async function AppPage({
         </div>
 
         <div className="rounded-3xl border border-emerald-200 bg-gradient-to-br from-emerald-50 via-white to-lime-50 p-6 shadow-sm">
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">Tutor memory moments</p>
-          <h2 className="mt-3 text-2xl font-semibold tracking-tight text-slate-950">What the tutor remembers right now</h2>
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">Performance context</p>
+          <h2 className="mt-3 text-2xl font-semibold tracking-tight text-slate-950">Recent signals</h2>
           <div className="mt-5 space-y-3">
             {memoryMoments.map((moment) => (
               <div key={moment} className="rounded-2xl border border-emerald-100 bg-white/90 p-4 text-sm leading-6 text-slate-700">
@@ -203,10 +202,7 @@ export default async function AppPage({
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="max-w-3xl">
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-700">New workspace layer</p>
-            <h2 className="mt-3 text-2xl font-semibold tracking-tight text-slate-950">Instructional chat is now a first-class guided workspace surface.</h2>
-            <p className="mt-3 text-sm leading-7 text-slate-700">
-              This is the first step from adaptive tutoring toward a guided cognitive workspace. Use it to explain, plan, sequence study, and carry tutor continuity before whiteboard and presentation tools land.
-            </p>
+            <h2 className="mt-3 text-2xl font-semibold tracking-tight text-slate-950">Workspace tools</h2>
           </div>
           <Link href="/app/workspace" className="inline-flex rounded-full bg-slate-950 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800">
             Open workspace
@@ -259,7 +255,7 @@ export default async function AppPage({
           <section className="space-y-4">
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Study</p>
             <h2 className="text-xl font-semibold">Build study material</h2>
-            <p className="text-sm text-gray-600">Paste text, upload PDF or slides, add a link, and turn it into a guided study set.</p>
+            <p className="text-sm text-gray-600">Turn text, files, or links into study material.</p>
             {billingSnapshot ? (
               <div className="rounded-2xl border border-sky-200 bg-sky-50 p-4 text-sm text-slate-700">
                 <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">

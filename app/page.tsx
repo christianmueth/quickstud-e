@@ -15,7 +15,7 @@ export default async function Home({
       name: "Free",
       price: "$0",
       cadence: "/month",
-      summary: "Start with bounded AI study generation and the core guided-review flow.",
+      summary: "Core study flow with monthly limits.",
       features: [
         "5 AI generations each month",
         "Guided review sets and study notes",
@@ -29,7 +29,7 @@ export default async function Home({
       name: "Premium",
       price: "$9.99",
       cadence: "/month",
-      summary: "Unlock the full adaptive study workflow for individual learners.",
+      summary: "Unlimited study generation and tutor tools.",
       features: [
         "Unlimited AI generations",
         "Persistent tutor chat",
@@ -43,33 +43,19 @@ export default async function Home({
   const billingFaq = [
     {
       question: "Can I cancel anytime?",
-      answer:
-        "Yes. Paid plans are managed through Stripe's hosted billing portal, so you can cancel without contacting support. Your paid access stays active through the end of the current billing period.",
+      answer: "Yes. Cancel in Stripe anytime. Access stays on through the current billing period.",
     },
     {
       question: "What happens if I downgrade or cancel?",
-      answer:
-        "Your existing account and study history remain in place. After the paid period ends, the account falls back to the free plan limits, including the monthly AI generation cap.",
+      answer: "Your account stays intact. When paid access ends, it returns to the free plan.",
     },
     {
       question: "Do you lock me into a long-term contract?",
-      answer:
-        "No. The current plans are monthly subscriptions. There is no annual commitment required to start using Premium.",
-    },
-    {
-      question: "Why does the free plan have a limit?",
-      answer:
-        "The free plan is designed to let you evaluate the study workflow without opening unlimited AI usage. Paid plans cover the heavier generation volume and premium workspace tools.",
-    },
-    {
-      question: "Are refunds automatic?",
-      answer:
-        "The current product flow emphasizes self-serve cancellation rather than promising automatic refunds. If you need an exception, billing review still has to be handled manually.",
+      answer: "No. Premium is monthly.",
     },
     {
       question: "What does Premium unlock immediately?",
-      answer:
-        "Premium removes the monthly AI generation cap and unlocks persistent tutor chat, whiteboard assist, and presentation planning as soon as Stripe confirms the subscription.",
+      answer: "Unlimited generations, tutor chat, whiteboard assist, and presentation planning.",
     },
   ] as const;
 
@@ -83,10 +69,10 @@ export default async function Home({
             </div>
             <div className="space-y-4">
               <h1 className="max-w-3xl text-4xl font-semibold tracking-tight text-slate-950 sm:text-6xl">
-                A calm adaptive tutor with a clear path from free study to full premium workflow.
+                Study with a calm adaptive tutor.
               </h1>
               <p className="max-w-2xl text-base leading-8 text-slate-700 sm:text-lg">
-                QuickStud-E helps you study with guided review, tutoring hints, progress memory, and recovery-aware recommendations that stay understandable from one session to the next.
+                Guided review, tutor help, and simple progress tracking.
               </p>
             </div>
 
@@ -97,10 +83,6 @@ export default async function Home({
               <span className="rounded-full border border-slate-200 bg-white/80 px-3 py-1">Recovery-aware recommendations</span>
               <span className="rounded-full border border-slate-200 bg-white/80 px-3 py-1">Clear next-step explanations</span>
             </div>
-
-            <p className="max-w-2xl text-sm leading-7 text-slate-500">
-              The tutoring experience is adaptive, but its authority stays bounded. Recommendations are meant to feel useful and explainable, not opaque or over-controlling.
-            </p>
 
             <div className="flex flex-wrap items-center gap-3">
               <Link
@@ -161,12 +143,12 @@ export default async function Home({
                 <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
                   <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Free plan</p>
                   <p className="mt-2 text-2xl font-semibold text-slate-950">5 generations</p>
-                  <p className="mt-1 text-sm leading-6 text-slate-600">Enough to test guided review, document inputs, and study notes before committing.</p>
+                  <p className="mt-1 text-sm leading-6 text-slate-600">Try the full study flow.</p>
                 </div>
                 <div className="rounded-2xl border border-amber-200 bg-amber-50/90 p-4">
                   <p className="text-xs font-semibold uppercase tracking-[0.16em] text-amber-800">Premium</p>
                   <p className="mt-2 text-2xl font-semibold text-slate-950">Unlimited</p>
-                  <p className="mt-1 text-sm leading-6 text-slate-700">Best for learners who want tutor chat, whiteboard assist, and presentation planning in one flow.</p>
+                  <p className="mt-1 text-sm leading-6 text-slate-700">Unlock tutor and workspace tools.</p>
                 </div>
               </div>
             </div>
@@ -177,11 +159,9 @@ export default async function Home({
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Pricing</p>
-              <h2 className="mt-2 text-3xl font-semibold tracking-tight text-slate-950">Choose how much of the adaptive workflow you want unlocked.</h2>
+              <h2 className="mt-2 text-3xl font-semibold tracking-tight text-slate-950">Simple pricing.</h2>
             </div>
-            <p className="max-w-xl text-sm leading-7 text-slate-600">
-              Start free, then upgrade when you need persistent tutor continuity, workspace AI tools, and unlimited generation volume.
-            </p>
+            <p className="max-w-xl text-sm leading-7 text-slate-600">Start free. Upgrade only if you need more.</p>
           </div>
 
           <div className="grid gap-5 lg:grid-cols-2">
@@ -237,11 +217,11 @@ export default async function Home({
         <section className="grid gap-6 lg:grid-cols-[0.92fr_1.08fr]">
           <div className="rounded-[1.75rem] border border-slate-200 bg-white/85 p-6 shadow-sm">
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Billing policy</p>
-            <h2 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950">The important billing terms are meant to be understandable before you create an account.</h2>
+            <h2 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950">Billing, simply stated.</h2>
             <div className="mt-5 space-y-4 text-sm leading-7 text-slate-700">
-              <p>Subscriptions are monthly, self-serve, and managed through Stripe.</p>
-              <p>Cancellations stop future renewals, but they do not erase your account or your saved study material.</p>
-              <p>When paid access ends, the account returns to the free plan instead of being locked out entirely.</p>
+              <p>Monthly billing through Stripe.</p>
+              <p>Cancel anytime.</p>
+              <p>Paid access ends by returning to Free.</p>
             </div>
 
             <div className="mt-6 rounded-3xl border border-amber-200 bg-amber-50 p-5">
@@ -257,7 +237,7 @@ export default async function Home({
           <div className="space-y-4">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">FAQ</p>
-              <h2 className="mt-2 text-3xl font-semibold tracking-tight text-slate-950">Common pricing objections, answered directly.</h2>
+              <h2 className="mt-2 text-3xl font-semibold tracking-tight text-slate-950">FAQ</h2>
             </div>
 
             <div className="grid gap-4 md:grid-cols-2">

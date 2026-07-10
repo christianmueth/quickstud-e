@@ -64,7 +64,7 @@ const TUTOR_MODES: Array<{
     key: "study-plan",
     label: "Study plan",
     title: "Turn performance into a concrete next-step plan.",
-    description: "Best when you want sequencing, priorities, and a short session structure based on your recent weak areas.",
+    description: "A short plan from recent weak areas.",
     placeholder: "Ask for a study plan built from your recent weak areas, recovery patterns, and current workload.",
     focusReason: "Tutor mode: study plan. Prioritize sequencing, review order, and concrete next steps from recent performance.",
   },
@@ -72,7 +72,7 @@ const TUTOR_MODES: Array<{
     key: "explanation",
     label: "Explanation",
     title: "Drill into the concept that still feels shaky.",
-    description: "Best when you need a clearer explanation, worked intuition, or a slower reframe of a weak concept.",
+    description: "A clearer explanation of the weak concept.",
     placeholder: "Ask for a clearer explanation of the idea that is still slipping, including why it matters and what to notice next.",
     focusReason: "Tutor mode: explanation. Prioritize conceptual clarity, intuition, and explanation style matched to recent performance.",
   },
@@ -80,7 +80,7 @@ const TUTOR_MODES: Array<{
     key: "quiz-me",
     label: "Quiz me",
     title: "Have the tutor probe your understanding directly.",
-    description: "Best when you want short checks, targeted questions, and quick correction loops anchored to your weak areas.",
+    description: "Short checks on the concepts that need work.",
     placeholder: "Ask the tutor to quiz you on the concept that currently needs the most reinforcement.",
     focusReason: "Tutor mode: quiz me. Prioritize short targeted questions, retrieval practice, and immediate correction cues from recent performance.",
   },
@@ -261,7 +261,6 @@ export default function TutorWorkspacePanel({ isPaid, planLabel, initialMode, pe
           <div className="rounded-3xl border border-sky-200 bg-gradient-to-br from-sky-50 via-white to-cyan-50 p-6 shadow-sm">
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-700">AI tutor read</p>
             <h2 className="mt-3 text-2xl font-semibold tracking-tight text-slate-950">{performanceSummary.headline}</h2>
-            <p className="mt-3 text-sm leading-7 text-slate-700">{performanceSummary.summary}</p>
             <div className="mt-5 grid gap-3 md:grid-cols-3 xl:grid-cols-1">
               {performanceSummary.cues.map((cue) => (
                 <div key={cue} className="rounded-2xl border border-sky-100 bg-white/90 p-4 text-sm leading-6 text-slate-700">
@@ -275,7 +274,7 @@ export default function TutorWorkspacePanel({ isPaid, planLabel, initialMode, pe
             <div className="flex items-start justify-between gap-4">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">Performance context</p>
-                <h3 className="mt-3 text-xl font-semibold tracking-tight text-slate-950">Tutor memory and recent performance</h3>
+                <h3 className="mt-3 text-xl font-semibold tracking-tight text-slate-950">Recent performance</h3>
               </div>
               <div className="rounded-full border border-emerald-200 bg-white px-3 py-1 text-xs font-medium text-emerald-800">
                 {performanceSummary.recentRunCount} recent tutor signals
@@ -306,9 +305,6 @@ export default function TutorWorkspacePanel({ isPaid, planLabel, initialMode, pe
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">AI tutor chat</p>
               <h2 className="mt-3 text-2xl font-semibold tracking-tight text-slate-950">Ask for coaching based on your performance patterns.</h2>
-              <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-700">
-                This tutor uses your recent performance, weak concepts, recovery patterns, and saved study history to answer with more continuity than a one-off chat.
-              </p>
             </div>
             {isPaid ? (
               <div className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-800">
@@ -348,9 +344,7 @@ export default function TutorWorkspacePanel({ isPaid, planLabel, initialMode, pe
 
           {!isPaid ? (
             <div className="mt-6 rounded-3xl border border-amber-200 bg-gradient-to-br from-amber-50 via-white to-orange-50 p-6">
-              <p className="text-sm leading-7 text-slate-700">
-                The AI tutor tab is performance-aware and uses your recent learning signals, but sending messages is currently a Premium feature.
-              </p>
+              <p className="text-sm leading-7 text-slate-700">Tutor chat is a Premium feature.</p>
               <div className="mt-5 flex flex-wrap gap-3">
                 <BillingActionButton
                   action="checkout"
@@ -436,7 +430,6 @@ export default function TutorWorkspacePanel({ isPaid, planLabel, initialMode, pe
                         ? "No messages match the current filter yet. Switch filters or ask the tutor in the active mode."
                         : "Start with one of the suggested prompts below, or ask directly about your weak areas and next study step."}
                     </p>
-                    <p>The tutor will answer using your saved performance context instead of treating this like a blank chat window.</p>
                   </div>
                 )}
               </div>
@@ -474,7 +467,6 @@ export default function TutorWorkspacePanel({ isPaid, planLabel, initialMode, pe
                   className="min-h-[120px] w-full rounded-2xl border border-slate-300 bg-white px-3 py-3 text-sm text-slate-900 outline-none focus:border-slate-900"
                 />
                 <div className="flex items-center justify-between gap-3">
-                  <p className="text-xs leading-5 text-slate-500">The tutor explains and recommends from your performance history, but it does not take study actions for you.</p>
                   <button
                     type="submit"
                     className="rounded-full bg-slate-950 px-4 py-2 text-sm font-medium text-white disabled:opacity-60"

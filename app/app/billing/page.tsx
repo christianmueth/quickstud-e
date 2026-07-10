@@ -55,9 +55,6 @@ export default async function BillingPage({ searchParams }: BillingPageProps) {
       <section className="rounded-3xl border border-sky-200 bg-gradient-to-br from-sky-50 via-white to-cyan-50 p-6 shadow-sm">
         <p className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-700">Billing</p>
         <h1 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950">Plan and subscription</h1>
-        <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-700">
-          Manage your plan, review your current subscription state, and open Stripe's hosted billing portal for invoices or cancellation.
-        </p>
         {checkoutState === "success" ? (
           <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
             Checkout completed. Stripe will confirm the subscription and unlock paid access as soon as the webhook arrives.
@@ -113,8 +110,8 @@ export default async function BillingPage({ searchParams }: BillingPageProps) {
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-700">Included now</p>
           <h2 className="mt-3 text-2xl font-semibold tracking-tight text-slate-950">Free plan starts with 5 AI generations each month.</h2>
           <div className="mt-5 space-y-3 text-sm leading-7 text-slate-700">
-            <p>Premium unlocks unlimited generations, premium tutor chat, and hosted Stripe billing management.</p>
-            <p>There are only two plans: Free for trying the workflow and Premium for the full product.</p>
+            <p>Free for trying the workflow.</p>
+            <p>Premium for unlimited access.</p>
           </div>
         </div>
       </section>
