@@ -19,7 +19,33 @@ export default async function BillingPage({ searchParams }: BillingPageProps) {
     redirect(`/?next=${encodeURIComponent("/app/billing")}`);
   }
 
-  const billing = await getBillingSnapshot(userId);
+  let billingUnavailable = false;
+  const billing = await getBillingSnapshot(userId).catch((error) => {
+    billingUnavailable = true;
+    console.error("[BillingPage] Billing snapshot fallback:", error);
+    return {
+      user: {
+        id: userId,
+        clerkUserId: userId,
+        plan: "FREE",
+        subscriptionStatus: "FREE",
+        stripeCustomerId: null,
+        stripeSubscriptionId: null,
+        stripePriceId: null,
+        currentPeriodEnd: null,
+        monthlyGenerationCount: 0,
+        usagePeriodStart: new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1, 0, 0, 0, 0)),
+      },
+      plan: "FREE",
+      subscriptionStatus: "FREE",
+      isPaid: false,
+      monthlyGenerationCount: 0,
+      monthlyGenerationLimit: 5,
+      monthlyGenerationsRemaining: 5,
+      currentPeriodEnd: null,
+      usagePeriodStart: new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1, 0, 0, 0, 0)),
+    } as Awaited<ReturnType<typeof getBillingSnapshot>>;
+  });
   const plans = listCheckoutPlans();
   const nextBillingDate = formatBillingDate(billing.currentPeriodEnd);
   const checkoutState = (await searchParams)?.checkout || "";
@@ -40,6 +66,11 @@ export default async function BillingPage({ searchParams }: BillingPageProps) {
         {checkoutState === "canceled" ? (
           <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
             Checkout was canceled. Your current plan has not changed.
+          </div>
+        ) : null}
+        {billingUnavailable ? (
+          <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            Billing history is temporarily unavailable, but Stripe checkout and portal access are still available.
           </div>
         ) : null}
       </section>
@@ -65,15 +96,13 @@ export default async function BillingPage({ searchParams }: BillingPageProps) {
           </div>
 
           <div className="mt-6 flex flex-wrap gap-3">
-            {billing.user.stripeCustomerId ? (
-              <BillingActionButton
-                action="portal"
-                className="rounded-full bg-slate-950 px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
-                pendingLabel="Opening portal..."
-              >
-                Manage subscription
-              </BillingActionButton>
-            ) : null}
+            <BillingActionButton
+              action="portal"
+              className="rounded-full bg-slate-950 px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+              pendingLabel="Opening portal..."
+            >
+              Manage subscription
+            </BillingActionButton>
             <Link href="/app" className="rounded-full border border-slate-300 px-4 py-2 text-sm font-medium text-slate-900 hover:bg-slate-50">
               Back to study
             </Link>

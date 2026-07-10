@@ -48,17 +48,7 @@ export default async function AppPage({
   try {
     billingSnapshot = await getBillingSnapshot(userId);
   } catch (error) {
-    console.error("[App] Database error creating user:", error);
-    return (
-      <div className="max-w-2xl mx-auto p-6">
-        <div className="border border-red-300 bg-red-50 p-4 rounded">
-          <h2 className="font-semibold text-red-900">We couldn't load your learning spaces.</h2>
-          <p className="text-sm text-red-700 mt-2">
-            Your study workspace can't load until the data connection is available again.
-          </p>
-        </div>
-      </div>
-    );
+    console.error("[App] Billing snapshot fallback:", error);
   }
 
   let decks: Array<{ id: string; title: string; createdAt: Date; _count: { cards: number } } > = [];

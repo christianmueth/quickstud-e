@@ -27,7 +27,37 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "That plan is not configured yet.", code: "PLAN_NOT_CONFIGURED" }, { status: 400 });
   }
 
-  const billing = await getBillingSnapshot(clerkUserId);
+  let billing = await getBillingSnapshot(clerkUserId).catch(() => null);
+  if (!billing) {
+    const user = await prisma.user.upsert({
+      where: { clerkUserId },
+      update: {},
+      create: { clerkUserId },
+      select: { id: true, clerkUserId: true },
+    });
+    billing = {
+      user: {
+        id: user.id,
+        clerkUserId: user.clerkUserId,
+        plan: "FREE",
+        subscriptionStatus: "FREE",
+        stripeCustomerId: null,
+        stripeSubscriptionId: null,
+        stripePriceId: null,
+        currentPeriodEnd: null,
+        monthlyGenerationCount: 0,
+        usagePeriodStart: new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1, 0, 0, 0, 0)),
+      },
+      plan: "FREE",
+      subscriptionStatus: "FREE",
+      isPaid: false,
+      monthlyGenerationCount: 0,
+      monthlyGenerationLimit: null,
+      monthlyGenerationsRemaining: null,
+      currentPeriodEnd: null,
+      usagePeriodStart: new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1, 0, 0, 0, 0)),
+    } as Awaited<ReturnType<typeof getBillingSnapshot>>;
+  }
   const clerkProfile = await currentUser().catch(() => null);
   const email = clerkProfile?.emailAddresses?.find((entry) => entry.id === clerkProfile.primaryEmailAddressId)?.emailAddress
     || clerkProfile?.emailAddresses?.[0]?.emailAddress
@@ -47,7 +77,7 @@ export async function POST(req: Request) {
     await prisma.user.update({
       where: { id: billing.user.id },
       data: { stripeCustomerId: customer.id },
-    });
+    }).catch(() => null);
   }
 
   const baseUrl = getBaseUrl(req);

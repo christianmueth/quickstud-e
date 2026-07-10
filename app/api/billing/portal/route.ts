@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
+import { prisma } from "@/lib/db";
 import { getBillingSnapshot } from "@/lib/billing";
 import { getStripe } from "@/lib/stripe";
 
@@ -18,14 +19,28 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Unauthorized", code: "UNAUTHORIZED" }, { status: 401 });
   }
 
-  const billing = await getBillingSnapshot(clerkUserId);
-  if (!billing.user.stripeCustomerId) {
+  const stripe = getStripe();
+  const billing = await getBillingSnapshot(clerkUserId).catch(() => null);
+  let customerId = billing?.user.stripeCustomerId || null;
+
+  if (!customerId) {
+    const appUser = await prisma.user.findFirst({ where: { clerkUserId }, select: { id: true } }).catch(() => null);
+    const customerSearch = await stripe.customers.search({
+      query: appUser?.id
+        ? `metadata['appUserId']:'${appUser.id}' OR metadata['clerkUserId']:'${clerkUserId}'`
+        : `metadata['clerkUserId']:'${clerkUserId}'`,
+      limit: 1,
+    }).catch(() => null);
+
+    customerId = customerSearch?.data?.[0]?.id || null;
+  }
+
+  if (!customerId) {
     return NextResponse.json({ error: "No Stripe customer found for this account yet.", code: "NO_CUSTOMER" }, { status: 400 });
   }
 
-  const stripe = getStripe();
   const session = await stripe.billingPortal.sessions.create({
-    customer: billing.user.stripeCustomerId,
+    customer: customerId,
     return_url: `${getBaseUrl(req)}/app/billing`,
   });
 
