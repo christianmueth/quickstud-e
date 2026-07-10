@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db";
 
 export const FREE_PLAN_MONTHLY_GENERATION_LIMIT = Number(process.env.FREE_PLAN_MONTHLY_GENERATION_LIMIT || 5);
 
-export type CheckoutPlanKey = "premium" | "pro";
+export type CheckoutPlanKey = "premium";
 
 type BillingUserRecord = Pick<
   User,
@@ -51,9 +51,8 @@ export function getCurrentUsagePeriodStart(now = new Date()) {
 export function formatPlanLabel(plan: SubscriptionPlan) {
   switch (plan) {
     case SubscriptionPlan.PREMIUM:
-      return "Premium";
     case SubscriptionPlan.PRO:
-      return "Pro";
+      return "Premium";
     default:
       return "Free";
   }
@@ -74,41 +73,28 @@ export function isPaidPlan(plan: SubscriptionPlan, status: SubscriptionStatus) {
 }
 
 export function getCheckoutPlanConfig(planKey: CheckoutPlanKey) {
-  if (planKey === "premium") {
-    const priceId = process.env.STRIPE_PREMIUM_PRICE_ID?.trim();
-    if (!priceId) return null;
-    return {
-      key: planKey,
-      plan: SubscriptionPlan.PREMIUM,
-      priceId,
-      label: "Premium",
-      priceLabel: "$9.99/month",
-      description: "Unlimited generations, tutor chat, and faster study workflows.",
-    };
-  }
-
-  const priceId = process.env.STRIPE_PRO_PRICE_ID?.trim();
+  const priceId = process.env.STRIPE_PREMIUM_PRICE_ID?.trim();
   if (!priceId) return null;
   return {
     key: planKey,
-    plan: SubscriptionPlan.PRO,
+    plan: SubscriptionPlan.PREMIUM,
     priceId,
-    label: "Pro",
-    priceLabel: "$19.99/month",
-    description: "Everything in Premium plus larger uploads and early-access features.",
+    label: "Premium",
+    priceLabel: "$9.99/month",
+    description: "Unlimited generations, tutor chat, and faster study workflows.",
   };
 }
 
 export function listCheckoutPlans() {
-  return (["premium", "pro"] as CheckoutPlanKey[])
+  return (["premium"] as CheckoutPlanKey[])
     .map((key) => getCheckoutPlanConfig(key))
     .filter((value): value is NonNullable<ReturnType<typeof getCheckoutPlanConfig>> => Boolean(value));
 }
 
 export function resolvePlanFromPriceId(priceId: string | null | undefined) {
   if (!priceId) return SubscriptionPlan.FREE;
-  if (priceId === process.env.STRIPE_PRO_PRICE_ID?.trim()) return SubscriptionPlan.PRO;
   if (priceId === process.env.STRIPE_PREMIUM_PRICE_ID?.trim()) return SubscriptionPlan.PREMIUM;
+  if (priceId === process.env.STRIPE_PRO_PRICE_ID?.trim()) return SubscriptionPlan.PREMIUM;
   return SubscriptionPlan.FREE;
 }
 

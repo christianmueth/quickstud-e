@@ -20,7 +20,7 @@ export async function POST(req: Request) {
   }
 
   const body = (await req.json().catch(() => ({}))) as { plan?: CheckoutPlanKey };
-  const planKey = body.plan === "pro" ? "pro" : "premium";
+  const planKey: CheckoutPlanKey = "premium";
   const planConfig = getCheckoutPlanConfig(planKey);
 
   if (!planConfig) {

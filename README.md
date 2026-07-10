@@ -42,7 +42,6 @@ The current production posture is:
 - `STRIPE_SECRET_KEY=<server-side Stripe secret>`
 - `STRIPE_WEBHOOK_SECRET=<Stripe webhook signing secret>`
 - `STRIPE_PREMIUM_PRICE_ID=<monthly Premium price id>`
-- `STRIPE_PRO_PRICE_ID=<optional monthly Pro price id>`
 - `NEXT_PUBLIC_APP_URL=<canonical app origin for checkout and portal redirects>`
 - `FREE_PLAN_MONTHLY_GENERATION_LIMIT=5`
 

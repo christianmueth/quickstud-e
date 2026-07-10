@@ -39,20 +39,6 @@ export default async function Home({
       accent: "border-amber-300 bg-gradient-to-b from-amber-50 to-white",
       badge: "Most popular",
     },
-    {
-      name: "Pro",
-      price: "$19.99",
-      cadence: "/month",
-      summary: "Reserved for heavier study workflows and future advanced collaboration features.",
-      features: [
-        "Everything in Premium",
-        "Larger upload workflows",
-        "Early access to advanced AI features",
-        "Reserved path for classroom or team expansion",
-      ],
-      accent: "border-sky-300 bg-gradient-to-b from-sky-50 to-white",
-      badge: "Expansion tier",
-    },
   ] as const;
   const billingFaq = [
     {
@@ -68,7 +54,7 @@ export default async function Home({
     {
       question: "Do you lock me into a long-term contract?",
       answer:
-        "No. The current plans are monthly subscriptions. There is no annual commitment required to start using Premium or Pro.",
+        "No. The current plans are monthly subscriptions. There is no annual commitment required to start using Premium.",
     },
     {
       question: "Why does the free plan have a limit?",
@@ -204,7 +190,7 @@ export default async function Home({
             </p>
           </div>
 
-          <div className="grid gap-5 lg:grid-cols-3">
+          <div className="grid gap-5 lg:grid-cols-2">
             {plans.map((plan) => (
               <article key={plan.name} className={`rounded-[1.75rem] border p-6 shadow-sm ${plan.accent}`}>
                 <div className="flex items-start justify-between gap-4">
@@ -273,7 +259,7 @@ export default async function Home({
               <p className="text-xs font-semibold uppercase tracking-[0.16em] text-amber-800">Before signup</p>
               <ul className="mt-3 space-y-2 text-sm leading-7 text-slate-700">
                 <li>Free accounts start with 5 AI generations each month.</li>
-                <li>Premium and Pro are recurring monthly subscriptions.</li>
+                <li>Premium is a recurring monthly subscription.</li>
                 <li>Billing management and cancellation happen in the hosted Stripe portal.</li>
               </ul>
             </div>

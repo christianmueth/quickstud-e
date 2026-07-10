@@ -85,7 +85,7 @@ export default async function BillingPage({ searchParams }: BillingPageProps) {
           <h2 className="mt-3 text-2xl font-semibold tracking-tight text-slate-950">Free plan starts with 5 AI generations each month.</h2>
           <div className="mt-5 space-y-3 text-sm leading-7 text-slate-700">
             <p>Premium unlocks unlimited generations, premium tutor chat, and hosted Stripe billing management.</p>
-            <p>Pro is optional and only appears after you configure a Pro price in Stripe.</p>
+            <p>There are only two plans: Free for trying the workflow and Premium for the full product.</p>
           </div>
         </div>
       </section>
@@ -120,7 +120,7 @@ export default async function BillingPage({ searchParams }: BillingPageProps) {
           })
         ) : (
           <div className="rounded-3xl border border-red-200 bg-red-50 p-6 text-sm text-red-900 md:col-span-2">
-            Stripe price IDs are not configured yet. Add STRIPE_PREMIUM_PRICE_ID, and optionally STRIPE_PRO_PRICE_ID, before opening billing to customers.
+            Stripe price IDs are not configured yet. Add STRIPE_PREMIUM_PRICE_ID before opening billing to customers.
           </div>
         )}
       </section>

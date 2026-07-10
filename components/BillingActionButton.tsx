@@ -5,7 +5,7 @@ import { toast } from "sonner";
 
 type BillingActionButtonProps = {
   action: "checkout" | "portal";
-  plan?: "premium" | "pro";
+  plan?: "premium";
   className?: string;
   children: React.ReactNode;
   pendingLabel?: string;
