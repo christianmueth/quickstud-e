@@ -108,10 +108,10 @@ export default async function BillingPage({ searchParams }: BillingPageProps) {
 
         <div className="rounded-3xl border border-amber-200 bg-gradient-to-br from-amber-50 via-white to-orange-50 p-6 shadow-sm">
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-700">Included now</p>
-          <h2 className="mt-3 text-2xl font-semibold tracking-tight text-slate-950">Free plan starts with 5 AI generations each month.</h2>
+          <h2 className="mt-3 text-2xl font-semibold tracking-tight text-slate-950">Free or Premium.</h2>
           <div className="mt-5 space-y-3 text-sm leading-7 text-slate-700">
             <p>Free for trying the workflow.</p>
-            <p>Premium for unlimited access.</p>
+            <p>Premium for unlimited access at $2.99/month.</p>
           </div>
         </div>
       </section>

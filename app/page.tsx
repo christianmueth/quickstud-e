@@ -16,46 +16,16 @@ export default async function Home({
       price: "$0",
       cadence: "/month",
       summary: "Core study flow with monthly limits.",
-      features: [
-        "5 AI generations each month",
-        "Guided review sets and study notes",
-        "PDF and document study inputs",
-        "Progress tracking across sessions",
-      ],
       accent: "border-slate-200 bg-white",
-      badge: "Start here",
+      badge: "Free",
     },
     {
       name: "Premium",
-      price: "$9.99",
+      price: "$2.99",
       cadence: "/month",
       summary: "Unlimited study generation and tutor tools.",
-      features: [
-        "Unlimited AI generations",
-        "Persistent tutor chat",
-        "Whiteboard assist and presentation planning",
-        "Stripe billing portal and self-serve cancellation",
-      ],
       accent: "border-amber-300 bg-gradient-to-b from-amber-50 to-white",
-      badge: "Most popular",
-    },
-  ] as const;
-  const billingFaq = [
-    {
-      question: "Can I cancel anytime?",
-      answer: "Yes. Cancel in Stripe anytime. Access stays on through the current billing period.",
-    },
-    {
-      question: "What happens if I downgrade or cancel?",
-      answer: "Your account stays intact. When paid access ends, it returns to the free plan.",
-    },
-    {
-      question: "Do you lock me into a long-term contract?",
-      answer: "No. Premium is monthly.",
-    },
-    {
-      question: "What does Premium unlock immediately?",
-      answer: "Unlimited generations, tutor chat, whiteboard assist, and presentation planning.",
+      badge: "Premium",
     },
   ] as const;
 
@@ -147,48 +117,38 @@ export default async function Home({
                 </div>
                 <div className="rounded-2xl border border-amber-200 bg-amber-50/90 p-4">
                   <p className="text-xs font-semibold uppercase tracking-[0.16em] text-amber-800">Premium</p>
-                  <p className="mt-2 text-2xl font-semibold text-slate-950">Unlimited</p>
-                  <p className="mt-1 text-sm leading-6 text-slate-700">Unlock tutor and workspace tools.</p>
+                  <p className="mt-2 text-2xl font-semibold text-slate-950">$2.99</p>
+                  <p className="mt-1 text-sm leading-6 text-slate-700">Unlimited access.</p>
                 </div>
               </div>
             </div>
           </div>
         </section>
 
-        <section className="space-y-6">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <section className="rounded-[1.75rem] border border-slate-200 bg-white/90 p-6 shadow-sm">
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Pricing</p>
-              <h2 className="mt-2 text-3xl font-semibold tracking-tight text-slate-950">Simple pricing.</h2>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Plans</p>
+              <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">Free or Premium.</h2>
             </div>
-            <p className="max-w-xl text-sm leading-7 text-slate-600">Start free. Upgrade only if you need more.</p>
+            <p className="text-sm text-slate-600">Premium is $2.99/month. Cancel anytime.</p>
           </div>
 
-          <div className="grid gap-5 lg:grid-cols-2">
+          <div className="mt-5 grid gap-4 md:grid-cols-2">
             {plans.map((plan) => (
-              <article key={plan.name} className={`rounded-[1.75rem] border p-6 shadow-sm ${plan.accent}`}>
-                <div className="flex items-start justify-between gap-4">
+              <article key={plan.name} className={`rounded-2xl border p-4 ${plan.accent}`}>
+                <div className="flex items-center justify-between gap-4">
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">{plan.badge}</p>
-                    <h3 className="mt-3 text-2xl font-semibold text-slate-950">{plan.name}</h3>
+                    <h3 className="mt-1 text-lg font-semibold text-slate-950">{plan.name}</h3>
                   </div>
                   <div className="text-right">
-                    <p className="text-3xl font-semibold tracking-tight text-slate-950">{plan.price}</p>
-                    <p className="text-sm text-slate-500">{plan.cadence}</p>
+                    <p className="text-2xl font-semibold text-slate-950">{plan.price}</p>
+                    <p className="text-xs text-slate-500">{plan.cadence}</p>
                   </div>
                 </div>
-
-                <p className="mt-4 text-sm leading-7 text-slate-700">{plan.summary}</p>
-
-                <div className="mt-5 space-y-3">
-                  {plan.features.map((feature) => (
-                    <div key={feature} className="rounded-2xl border border-white/70 bg-white/70 px-4 py-3 text-sm text-slate-700">
-                      {feature}
-                    </div>
-                  ))}
-                </div>
-
-                <div className="mt-6 flex flex-wrap gap-3">
+                <p className="mt-3 text-sm text-slate-700">{plan.summary}</p>
+                <div className="mt-4 flex flex-wrap gap-3">
                   <SignedOut>
                     <SignUpButton
                       mode="modal"
@@ -196,7 +156,7 @@ export default async function Home({
                       signInForceRedirectUrl={nextTarget}
                     >
                       <button className="rounded-full bg-slate-950 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800">
-                        {plan.name === "Free" ? "Create free account" : `Start ${plan.name}`}
+                        {plan.name === "Free" ? "Start free" : "Get Premium"}
                       </button>
                     </SignUpButton>
                   </SignedOut>
@@ -205,49 +165,12 @@ export default async function Home({
                       href={plan.name === "Free" ? "/app" : "/app/billing"}
                       className="rounded-full bg-slate-950 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
                     >
-                      {plan.name === "Free" ? "Open study workspace" : `Choose ${plan.name}`}
+                      {plan.name === "Free" ? "Open app" : "Manage Premium"}
                     </Link>
                   </SignedIn>
                 </div>
               </article>
             ))}
-          </div>
-        </section>
-
-        <section className="grid gap-6 lg:grid-cols-[0.92fr_1.08fr]">
-          <div className="rounded-[1.75rem] border border-slate-200 bg-white/85 p-6 shadow-sm">
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Billing policy</p>
-            <h2 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950">Billing, simply stated.</h2>
-            <div className="mt-5 space-y-4 text-sm leading-7 text-slate-700">
-              <p>Monthly billing through Stripe.</p>
-              <p>Cancel anytime.</p>
-              <p>Paid access ends by returning to Free.</p>
-            </div>
-
-            <div className="mt-6 rounded-3xl border border-amber-200 bg-amber-50 p-5">
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-amber-800">Before signup</p>
-              <ul className="mt-3 space-y-2 text-sm leading-7 text-slate-700">
-                <li>Free accounts start with 5 AI generations each month.</li>
-                <li>Premium is a recurring monthly subscription.</li>
-                <li>Billing management and cancellation happen in the hosted Stripe portal.</li>
-              </ul>
-            </div>
-          </div>
-
-          <div className="space-y-4">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">FAQ</p>
-              <h2 className="mt-2 text-3xl font-semibold tracking-tight text-slate-950">FAQ</h2>
-            </div>
-
-            <div className="grid gap-4 md:grid-cols-2">
-              {billingFaq.map((item) => (
-                <article key={item.question} className="rounded-[1.5rem] border border-slate-200 bg-white/90 p-5 shadow-sm">
-                  <h3 className="text-lg font-semibold text-slate-950">{item.question}</h3>
-                  <p className="mt-3 text-sm leading-7 text-slate-700">{item.answer}</p>
-                </article>
-              ))}
-            </div>
           </div>
         </section>
       </div>

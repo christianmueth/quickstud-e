@@ -87,7 +87,7 @@ export function getCheckoutPlanConfig(planKey: CheckoutPlanKey) {
     plan: SubscriptionPlan.PREMIUM,
     priceId,
     label: "Premium",
-    priceLabel: "$9.99/month",
+    priceLabel: "$2.99/month",
     description: "Unlimited generations, tutor chat, and faster study workflows.",
   };
 }
