@@ -201,7 +201,7 @@ export default async function AppPage({
               : "rounded-full border border-slate-300 px-4 py-2 text-sm font-medium text-slate-900 hover:bg-slate-50"
             }
           >
-            Study sets
+            Study
           </Link>
           <Link
             href={`/app?tab=tutor&mode=${activeTutorMode}`}

@@ -231,9 +231,12 @@ export default async function ProgressPage() {
         <div className="flex flex-wrap items-center justify-between gap-4">
           <h2 className="text-xl font-semibold text-gray-950">Next</h2>
           {nextTopic?.href ? (
-            <Link href={nextTopic.href} className="rounded-full bg-gray-950 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800">
-              {nextTopic.actionLabel}
-            </Link>
+            <div className="flex flex-wrap items-center gap-3">
+              <p className="text-sm text-gray-600">Opens study set: <span className="font-medium text-gray-950">{nextTopic.deckTitle}</span></p>
+              <Link href={nextTopic.href} className="rounded-full bg-gray-950 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800">
+                {nextTopic.actionLabel}
+              </Link>
+            </div>
           ) : (
             <Link href="/app" className="rounded-full bg-gray-950 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800">Start studying</Link>
           )}
@@ -248,7 +251,7 @@ export default async function ProgressPage() {
                   <h3 className="font-medium text-gray-950">{topic.title}</h3>
                   <p className="mt-1 text-sm text-gray-600">{topic.badge}</p>
                 </div>
-                {topic.href ? <Link href={topic.href} className="text-sm font-medium text-gray-700 underline underline-offset-4">Open</Link> : null}
+                {topic.href ? <Link href={topic.href} className="text-sm font-medium text-gray-700 underline underline-offset-4">Open study set</Link> : null}
               </div>
             ))}
           </div>
@@ -355,10 +358,10 @@ function buildRecommendedTopics(
   }
 
   return dedupeByTitle(topics)
-    .map((topic) => ({
-      ...topic,
-      href: buildRecommendationHref(decks, topic.recommendationKey, topic.reason, topic.badge),
-    }))
+    .map((topic) => {
+      const destination = buildRecommendationDestination(decks, topic.recommendationKey, topic.reason, topic.badge);
+      return { ...topic, ...destination };
+    })
     .slice(0, 4);
 }
 
@@ -546,21 +549,24 @@ function formatRelativeDay(date: Date): string {
   return target.toLocaleDateString();
 }
 
-function buildRecommendationHref(
+function buildRecommendationDestination(
   decks: Array<{ id: string; title: string; cards: Array<{ question: string; answer: string }> }>,
   recommendationKey: string,
   reason: string,
   badge: string
 ) {
   const bestDeck = chooseBestDeckForConcept(decks, recommendationKey);
-  if (!bestDeck) return null;
+  if (!bestDeck) return { href: null, deckTitle: null };
 
   const params = new URLSearchParams({
     concept: trimText(recommendationKey, 80),
     reason: trimText(reason, 160),
     source: badge.toLowerCase().replace(/\s+/g, "_"),
   });
-  return `/app/deck/${bestDeck.id}?${params.toString()}`;
+  return {
+    href: `/app/deck/${bestDeck.id}?${params.toString()}`,
+    deckTitle: bestDeck.title,
+  };
 }
 
 function replaceHrefReason(href: string, reason: string) {
