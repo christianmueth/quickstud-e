@@ -19,12 +19,13 @@ type TutorMode = "study-plan" | "explanation" | "quiz-me";
 export default async function AppPage({
   searchParams,
 }: {
-  searchParams: Promise<{ tab?: string; mode?: string }>;
+  searchParams: Promise<{ tab?: string; mode?: string; library?: string }>;
 }) {
   let userId: string | null = null;
   let billingSnapshot: Awaited<ReturnType<typeof getBillingSnapshot>> | null = null;
   const resolvedSearchParams = await searchParams;
-  const activeTab = resolvedSearchParams.tab === "tutor" ? "tutor" : resolvedSearchParams.tab === "notes" ? "notes" : "flashcards";
+  const activeTab = resolvedSearchParams.tab === "tutor" ? "tutor" : "flashcards";
+  const activeLibrary = resolvedSearchParams.library === "notes" ? "notes" : "sets";
   const activeTutorMode = normalizeTutorMode(resolvedSearchParams.mode);
   
   try {
@@ -211,15 +212,6 @@ export default async function AppPage({
           >
             Tutor
           </Link>
-          <Link
-            href="/app?tab=notes"
-            className={activeTab === "notes"
-              ? "rounded-full bg-slate-950 px-4 py-2 text-sm font-medium text-white"
-              : "rounded-full border border-slate-300 px-4 py-2 text-sm font-medium text-slate-900 hover:bg-slate-50"
-            }
-          >
-            Notes
-          </Link>
         </div>
       </section>
 
@@ -238,34 +230,6 @@ export default async function AppPage({
             recentRunCount: recentRuns.length,
           }}
         />
-      ) : activeTab === "notes" ? (
-        <section className="max-w-2xl space-y-4">
-          <div className="flex items-center justify-between gap-3">
-            <h2 className="text-xl font-semibold">Study notes</h2>
-            {studyNotes.length > 0 ? <DeleteStudyNoteButton removeAll /> : null}
-          </div>
-          {studyNotes.length === 0 ? (
-            <div className="rounded border p-6 text-sm text-gray-500">No study notes yet.</div>
-          ) : (
-            <ul className="divide-y rounded border">
-              {studyNotes.map((note) => (
-                <li key={note.id} className="flex items-center justify-between gap-3 p-4">
-                  <div className="min-w-0">
-                    <Link href={`/app/study-notes/view?id=${note.id}`} className="block truncate font-medium hover:underline">
-                      {note.title}
-                    </Link>
-                    <p className="text-xs text-gray-500">
-                      {new Date(note.createdAt).toLocaleString()}{note.source ? ` • ${note.source}` : ""}
-                    </p>
-                  </div>
-                  <Link href={`/app/study-notes/view?id=${note.id}`} className="whitespace-nowrap rounded border px-3 py-1.5 text-sm hover:bg-gray-50">
-                    Open
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           <section className="space-y-4">
@@ -319,18 +283,37 @@ export default async function AppPage({
 
           <section className="space-y-4">
             <div className="flex justify-between items-center">
-              <div>
+              <div className="space-y-2">
                 <h2 className="text-xl font-semibold">Library</h2>
-              </div>
-              {decks.length > 0 && (
-                <div>
-                  <DeleteAllDecksButton />
+                <div className="flex gap-2">
+                  <Link
+                    href="/app?tab=flashcards&library=sets"
+                    className={activeLibrary === "sets"
+                      ? "rounded-full bg-slate-950 px-3 py-1.5 text-xs font-medium text-white"
+                      : "rounded-full border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                    }
+                  >
+                    Study sets
+                  </Link>
+                  <Link
+                    href="/app?tab=flashcards&library=notes"
+                    className={activeLibrary === "notes"
+                      ? "rounded-full bg-slate-950 px-3 py-1.5 text-xs font-medium text-white"
+                      : "rounded-full border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                    }
+                  >
+                    Study notes
+                  </Link>
                 </div>
-              )}
+              </div>
+              {activeLibrary === "sets" && decks.length > 0 ? <DeleteAllDecksButton /> : null}
+              {activeLibrary === "notes" && studyNotes.length > 0 ? <DeleteStudyNoteButton removeAll /> : null}
             </div>
-            {decks.length === 0 ? (
+            {activeLibrary === "sets" && decks.length === 0 ? (
               <div className="rounded border p-6 text-sm text-gray-500">No study sets yet.</div>
-            ) : (
+            ) : activeLibrary === "notes" && studyNotes.length === 0 ? (
+              <div className="rounded border p-6 text-sm text-gray-500">No study notes yet.</div>
+            ) : activeLibrary === "sets" ? (
               <ul className="divide-y rounded border">
                 {decks.map((d) => (
                   <li key={d.id} className="p-4 flex items-center justify-between gap-3">
@@ -343,6 +326,24 @@ export default async function AppPage({
                       </p>
                     </div>
                     <Link href={`/app/deck/${d.id}`} className="text-sm px-3 py-1.5 rounded border hover:bg-gray-50 whitespace-nowrap">
+                      Open
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <ul className="divide-y rounded border">
+                {studyNotes.map((note) => (
+                  <li key={note.id} className="p-4 flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <Link href={`/app/study-notes/view?id=${note.id}`} className="font-medium hover:underline truncate block">
+                        {note.title}
+                      </Link>
+                      <p className="text-xs text-gray-500">
+                        {new Date(note.createdAt).toLocaleString()}{note.source ? ` • ${note.source}` : ""}
+                      </p>
+                    </div>
+                    <Link href={`/app/study-notes/view?id=${note.id}`} className="text-sm px-3 py-1.5 rounded border hover:bg-gray-50 whitespace-nowrap">
                       Open
                     </Link>
                   </li>

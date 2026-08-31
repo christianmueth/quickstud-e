@@ -28,7 +28,7 @@ export default function DeleteStudyNoteButton({ noteId, removeAll = false }: Del
             const response = await fetch(endpoint, { method: "DELETE" });
             if (!response.ok) throw new Error("We couldn't remove the study note.");
             toast.success(removeAll ? "Study notes removed" : "Study note removed");
-            if (!removeAll) router.push("/app?tab=notes");
+            if (!removeAll) router.push("/app?tab=flashcards&library=notes");
             router.refresh();
           } catch (error: unknown) {
             toast.error(error instanceof Error ? error.message : "We couldn't remove the study note.");

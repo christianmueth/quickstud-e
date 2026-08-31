@@ -38,7 +38,7 @@ export default async function StudyNotesViewPage({
   const { id } = await searchParams;
 
   if (!userId) redirect(`/?next=${encodeURIComponent(`/app/study-notes/view?id=${id || ""}`)}`);
-  if (!id) redirect("/app?tab=notes");
+  if (!id) redirect("/app?tab=flashcards&library=notes");
 
   const note = await prisma.deck.findFirst({
     where: { id, user: { clerkUserId: userId } },
@@ -54,7 +54,7 @@ export default async function StudyNotesViewPage({
   });
 
   const content = note?.cards[0]?.answer;
-  if (!note || !content) redirect("/app?tab=notes");
+  if (!note || !content) redirect("/app?tab=flashcards&library=notes");
 
   return (
     <div className="max-w-4xl mx-auto p-6 space-y-6">
@@ -65,7 +65,7 @@ export default async function StudyNotesViewPage({
         </div>
         <div className="flex items-center gap-2">
           <DeleteStudyNoteButton noteId={id} />
-          <Link href="/app?tab=notes" className="px-4 py-2 border rounded hover:bg-gray-50">Back</Link>
+          <Link href="/app?tab=flashcards&library=notes" className="px-4 py-2 border rounded hover:bg-gray-50">Back</Link>
         </div>
       </div>
 
