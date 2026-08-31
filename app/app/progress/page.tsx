@@ -201,25 +201,8 @@ export default async function ProgressPage() {
   const analytics = reasoningRunsUnavailable ? null : summarizeReasoningRuns(recentRuns);
   const persistedWorkspaceContext = (await getLatestPersistedWorkspaceContext(userRecord.id)).context;
   const xpToday = getXpToday(userRecord.xpToday, userRecord.xpTodayDate);
-  const confidenceSeries = recentRuns
-    .slice(0, 8)
-    .reverse()
-    .map((run, index) => ({
-      label: `S${index + 1}`,
-      value: clampUnit(run.confidence ?? 0),
-    }));
-  const recommendedTopics = buildRecommendedTopics(studentState, analytics, decks, persistedWorkspaceContext);
-  const misconceptionCards = buildMisconceptionCards(studentState, analytics);
-  const strategyPatterns = analytics?.strategyWinsByMisconception.slice(0, 3) || [];
-  const recentWins = studentState?.recentSuccesses.slice(0, 4) || [];
-  const recentRecoveryNeeds = studentState?.recentFailures.slice(0, 4) || [];
-  const recoveryTimeline = buildRecoveryTimeline(recentRuns);
-  const recoverySummary = summarizeRecoveryTimeline(recoveryTimeline);
-  const tutorBrief = buildTutorBrief(studentState, analytics, recoverySummary, persistedWorkspaceContext);
-  const progressNarrative = buildProgressNarrative(studentState, analytics, recoverySummary, recommendedTopics);
-  const progressResumeHref = progressNarrative.resumeHref
-    ? replaceHrefReason(progressNarrative.resumeHref, progressNarrative.resumeReason)
-    : null;
+  const recommendedTopics = buildRecommendedTopics(studentState, analytics, decks, persistedWorkspaceContext).slice(0, 3);
+  const nextTopic = recommendedTopics.find((topic) => topic.href) || null;
 
   return (
     <main className="mx-auto max-w-6xl space-y-6 px-6 py-8">
@@ -242,278 +225,38 @@ export default async function ProgressPage() {
         </section>
       )}
 
-      <section className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
-        <div className="rounded-3xl border border-sky-200 bg-gradient-to-br from-sky-50 via-white to-cyan-50 p-6 shadow-sm">
-          <h2 className="text-2xl font-semibold tracking-tight text-gray-950">{tutorBrief.headline}</h2>
-          <div className="mt-5 grid gap-3 md:grid-cols-3">
-            {tutorBrief.cues.map((cue) => (
-              <div key={cue} className="rounded-2xl border border-sky-100 bg-white/90 p-3 text-sm leading-6 text-gray-700">
-                {cue}
+      <section className="grid gap-3 sm:grid-cols-3">
+        <MetricCard label="Streak" value={`${userRecord.studyStreak} day${userRecord.studyStreak === 1 ? "" : "s"}`} />
+        <MetricCard label="Today" value={`${xpToday}/${userRecord.dailyGoal} XP`} />
+        <MetricCard label="Confidence" value={`${Math.round((analytics?.averageConfidence ?? 0) * 100)}%`} />
+      </section>
+
+      <section className="border-y border-gray-200 py-6">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <h2 className="text-xl font-semibold text-gray-950">Next</h2>
+          {nextTopic?.href ? (
+            <Link href={nextTopic.href} className="rounded-full bg-gray-950 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800">
+              {nextTopic.actionLabel}
+            </Link>
+          ) : (
+            <Link href="/app" className="rounded-full bg-gray-950 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800">Start studying</Link>
+          )}
+        </div>
+        {recommendedTopics.length === 0 ? (
+          <p className="mt-3 text-sm text-gray-600">Study to see a recommendation.</p>
+        ) : (
+          <div className="mt-4 divide-y divide-gray-200 border-t border-gray-200">
+            {recommendedTopics.map((topic) => (
+              <div key={topic.title} className="flex items-center justify-between gap-4 py-3">
+                <div>
+                  <h3 className="font-medium text-gray-950">{topic.title}</h3>
+                  <p className="mt-1 text-sm text-gray-600">{topic.badge}</p>
+                </div>
+                {topic.href ? <Link href={topic.href} className="text-sm font-medium text-gray-700 underline underline-offset-4">Open</Link> : null}
               </div>
             ))}
           </div>
-        </div>
-
-        <div className="rounded-3xl border border-emerald-200 bg-gradient-to-br from-emerald-50 via-white to-lime-50 p-6 shadow-sm">
-          <h2 className="text-2xl font-semibold tracking-tight text-gray-950">{progressNarrative.headline}</h2>
-          <div className="mt-5 space-y-3">
-            <div className="rounded-2xl border border-emerald-100 bg-white/90 p-4 text-sm leading-6 text-gray-700">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-700">Changed</p>
-              <p className="mt-2">{progressNarrative.whatChanged}</p>
-            </div>
-            <div className="rounded-2xl border border-amber-100 bg-white/90 p-4 text-sm leading-6 text-gray-700">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-amber-700">Review</p>
-              <p className="mt-2">{progressNarrative.stillUnstable}</p>
-            </div>
-            <div className="rounded-2xl border border-sky-100 bg-white/90 p-4 text-sm leading-6 text-gray-700">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-sky-700">Next</p>
-              <p className="mt-2">{progressNarrative.nextStep}</p>
-              {progressResumeHref ? (
-                <div className="mt-4">
-                  <Link
-                    href={progressResumeHref}
-                    className="inline-flex rounded-full bg-slate-950 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800"
-                  >
-                    {progressNarrative.resumeLabel}
-                  </Link>
-                </div>
-              ) : null}
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <MetricCard label="Current study streak" value={`${userRecord.studyStreak} day${userRecord.studyStreak === 1 ? "" : "s"}`} detail="Consistency matters more than raw session length." tone="sky" />
-        <MetricCard label="Today's study goal" value={`${xpToday}/${userRecord.dailyGoal} XP`} detail={xpToday >= userRecord.dailyGoal ? "Daily goal reached." : `${Math.max(0, userRecord.dailyGoal - xpToday)} XP to go today.`} tone="emerald" />
-        <MetricCard label="Verification success" value={`${Math.round((studentState?.retentionProfile.recentVerificationSuccessRate ?? 0) * 100)}%`} detail={`${studentState?.retentionProfile.successfulChecks ?? 0} successful checks across recent study history.`} tone="amber" />
-        <MetricCard label="Recent tutoring runs" value={String(analytics?.totalRuns ?? 0)} detail={`${analytics?.verificationRuns ?? 0} runs included verification support.`} tone="violet" />
-      </section>
-
-      <section className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
-        <div className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <h2 className="text-xl font-semibold text-gray-950">Confidence trend</h2>
-              <p className="mt-2 text-sm leading-6 text-gray-600">
-                Recent tutoring and verification confidence over the last few sessions. This helps show whether understanding is stabilizing.
-              </p>
-            </div>
-            <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-700">
-              Average {Math.round((analytics?.averageConfidence ?? 0) * 100)}%
-            </span>
-          </div>
-
-          {confidenceSeries.length === 0 ? (
-            <EmptyInlineState body="Start studying to populate your confidence trend." />
-          ) : (
-            <div className="mt-6 flex items-end gap-3">
-              {confidenceSeries.map((point) => (
-                <div key={point.label} className="flex flex-1 flex-col items-center gap-2">
-                  <div className="flex h-40 w-full items-end rounded-2xl bg-gray-50 px-2 pb-2">
-                    <div
-                      className="w-full rounded-xl bg-gradient-to-t from-sky-600 to-emerald-400"
-                      style={{ height: `${Math.max(8, Math.round(point.value * 100))}%` }}
-                    />
-                  </div>
-                  <span className="text-xs text-gray-500">{point.label}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm">
-          <h2 className="text-xl font-semibold text-gray-950">Recommended next topics</h2>
-          <p className="mt-2 text-sm leading-6 text-gray-600">
-            These are bounded, visible next-step suggestions based on your recent weak concepts, misconceptions, study outcomes, and active workspace thread. They preserve continuity without taking control of your study flow.
-          </p>
-          <div className="mt-5 space-y-3">
-            {recommendedTopics.length === 0 ? (
-              <EmptyInlineState body="Recommendations will appear once you have more tutoring or verification history." />
-            ) : (
-              recommendedTopics.map((topic) => (
-                <div key={topic.title} className="rounded-2xl border border-gray-200 bg-gray-50 p-4">
-                  <div className="flex items-center justify-between gap-4">
-                    <h3 className="font-medium text-gray-950">{topic.title}</h3>
-                    <span className="rounded-full bg-white px-2.5 py-1 text-xs font-medium text-gray-600">{topic.badge}</span>
-                  </div>
-                  <p className="mt-2 text-sm leading-6 text-gray-600">{topic.reason}</p>
-                  {topic.href ? (
-                    <div className="mt-4 flex items-center justify-between gap-3">
-                      <p className="text-xs text-gray-500">
-                        {topic.actionLabel === "Resume this concept" ? "Opens the closest matching deck material so you can continue that concept deliberately." : "Opens a relevant study flow with the current recommendation context so you can continue or redirect it."}
-                      </p>
-                      <Link
-                        href={topic.href}
-                        className="rounded-full bg-gray-950 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800"
-                      >
-                        {topic.actionLabel}
-                      </Link>
-                    </div>
-                  ) : null}
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-      </section>
-
-      <section className="grid gap-6 xl:grid-cols-3">
-        <div className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm xl:col-span-2">
-          <h2 className="text-xl font-semibold text-gray-950">Misconception patterns</h2>
-          <p className="mt-2 text-sm leading-6 text-gray-600">
-            These are the learning patterns the system is watching so tutoring can reinforce the right next step.
-          </p>
-          <div className="mt-5 grid gap-4 md:grid-cols-2">
-            {misconceptionCards.length === 0 ? (
-              <div className="md:col-span-2">
-                <EmptyInlineState body="Misconception patterns will appear after you complete more guided study or answer verification sessions." />
-              </div>
-            ) : (
-              misconceptionCards.map((item) => (
-                <article key={item.title} className="rounded-2xl border border-gray-200 bg-gray-50 p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <h3 className="font-medium text-gray-950">{item.title}</h3>
-                    <span className="text-xs font-medium text-gray-500">{item.meta}</span>
-                  </div>
-                  <p className="mt-2 text-sm leading-6 text-gray-600">{item.description}</p>
-                </article>
-              ))
-            )}
-          </div>
-        </div>
-
-        <div className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm">
-          <h2 className="text-xl font-semibold text-gray-950">Study cadence</h2>
-          <p className="mt-2 text-sm leading-6 text-gray-600">
-            A lightweight view of consistency and pacing, so you can see whether effort is becoming steadier over time.
-          </p>
-          <dl className="mt-5 space-y-4 text-sm text-gray-700">
-            <div className="flex items-start justify-between gap-4 border-b border-gray-100 pb-3">
-              <dt className="font-medium text-gray-900">Lifetime XP</dt>
-              <dd>{userRecord.xp}</dd>
-            </div>
-            <div className="flex items-start justify-between gap-4 border-b border-gray-100 pb-3">
-              <dt className="font-medium text-gray-900">Verification attempts</dt>
-              <dd>{studentState?.pacingProfile.verificationAttempts ?? 0}</dd>
-            </div>
-            <div className="flex items-start justify-between gap-4 border-b border-gray-100 pb-3">
-              <dt className="font-medium text-gray-900">Low-confidence streak</dt>
-              <dd>{studentState?.pacingProfile.lowConfidenceStreak ?? 0}</dd>
-            </div>
-            <div className="flex items-start justify-between gap-4">
-              <dt className="font-medium text-gray-900">Preferred explanation style</dt>
-              <dd>{studentState?.preferredExplanationStyle ?? "Still learning"}</dd>
-            </div>
-          </dl>
-        </div>
-      </section>
-
-      <section className="grid gap-6 xl:grid-cols-2">
-        <div className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm">
-          <h2 className="text-xl font-semibold text-gray-950">Recovery progress</h2>
-          <p className="mt-2 text-sm leading-6 text-gray-600">
-            Recent wins and recovery needs make it easier to see where understanding is improving and where more repetition will help.
-          </p>
-          <div className="mt-5 grid gap-4 md:grid-cols-2">
-            <div>
-              <h3 className="text-sm font-medium uppercase tracking-[0.16em] text-emerald-700">Recent wins</h3>
-              <div className="mt-3 space-y-3">
-                {recentWins.length === 0 ? (
-                  <EmptyInlineState body="Successful recovery examples will appear here after more guided study sessions." compact />
-                ) : (
-                  recentWins.map((item) => (
-                    <div key={item} className="rounded-2xl bg-emerald-50 p-3 text-sm leading-6 text-emerald-950">
-                      {item}
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-            <div>
-              <h3 className="text-sm font-medium uppercase tracking-[0.16em] text-amber-700">Needs reinforcement</h3>
-              <div className="mt-3 space-y-3">
-                {recentRecoveryNeeds.length === 0 ? (
-                  <EmptyInlineState body="Topics that still need reinforcement will appear here as the system learns more about your study patterns." compact />
-                ) : (
-                  recentRecoveryNeeds.map((item) => (
-                    <div key={item} className="rounded-2xl bg-amber-50 p-3 text-sm leading-6 text-amber-950">
-                      {item}
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm">
-          <h2 className="text-xl font-semibold text-gray-950">Recovery timeline</h2>
-          <p className="mt-2 text-sm leading-6 text-gray-600">
-            This shows whether confidence is rebuilding, which topics are stabilizing, and where you are still revisiting the same kind of difficulty.
-          </p>
-          {recoverySummary ? (
-            <div className="mt-4 rounded-2xl border border-sky-100 bg-sky-50 p-4 text-sm leading-6 text-sky-950">
-              {recoverySummary}
-            </div>
-          ) : null}
-          <div className="mt-5 space-y-4">
-            {recoveryTimeline.length === 0 ? (
-              <EmptyInlineState body="Recovery events will appear here after more coached study reviews are recorded." />
-            ) : (
-              recoveryTimeline.map((event) => (
-                <article key={event.id} className="rounded-2xl border border-gray-200 bg-gray-50 p-4">
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <h3 className="font-medium text-gray-950">{event.headline}</h3>
-                      <p className="mt-1 text-xs uppercase tracking-[0.14em] text-gray-500">{event.when}</p>
-                    </div>
-                    <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${event.toneClass}`}>
-                      {event.badge}
-                    </span>
-                  </div>
-                  <p className="mt-3 text-sm leading-6 text-gray-600">{event.description}</p>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {event.tags.map((tag) => (
-                      <span key={tag} className="rounded-full border border-gray-200 bg-white px-3 py-1 text-xs text-gray-600">
-                        {tag}
-                      </span>
-                    ))}
-                  </div>
-                </article>
-              ))
-            )}
-          </div>
-        </div>
-      </section>
-
-      <section className="grid gap-6 xl:grid-cols-1">
-        <div className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm">
-          <h2 className="text-xl font-semibold text-gray-950">Helpful guidance patterns</h2>
-          <p className="mt-2 text-sm leading-6 text-gray-600">
-            This summarizes which tutoring styles have been most helpful across your recent misconception categories.
-          </p>
-          <div className="mt-5 space-y-4">
-            {strategyPatterns.length === 0 ? (
-              <EmptyInlineState body="Guidance patterns will appear once you have more tutoring guidance history." />
-            ) : (
-              strategyPatterns.map((pattern) => (
-                <article key={pattern.category} className="rounded-2xl border border-gray-200 bg-gray-50 p-4">
-                  <div className="flex items-center justify-between gap-4">
-                    <h3 className="font-medium text-gray-950">{humanizeMisconceptionCategory(pattern.category)}</h3>
-                    <span className="text-xs font-medium text-gray-500">{pattern.runCount} run{pattern.runCount === 1 ? "" : "s"}</span>
-                  </div>
-                  <p className="mt-2 text-sm leading-6 text-gray-600">
-                    {pattern.topStrategy
-                      ? `Most helpful recent pattern: ${trimText(pattern.topStrategy, 96)}${pattern.topStrategyType ? ` (${pattern.topStrategyType.toLowerCase()})` : ""}.`
-                      : "The system is still learning which guidance pattern works best here."}
-                  </p>
-                </article>
-              ))
-            )}
-          </div>
-        </div>
+        )}
       </section>
     </main>
   );
@@ -522,26 +265,14 @@ export default async function ProgressPage() {
 function MetricCard({
   label,
   value,
-  detail,
-  tone,
 }: {
   label: string;
   value: string;
-  detail: string;
-  tone: "sky" | "emerald" | "amber" | "violet";
 }) {
-  const toneClasses = {
-    sky: "from-sky-50 to-white text-sky-900 border-sky-100",
-    emerald: "from-emerald-50 to-white text-emerald-900 border-emerald-100",
-    amber: "from-amber-50 to-white text-amber-900 border-amber-100",
-    violet: "from-violet-50 to-white text-violet-900 border-violet-100",
-  };
-
   return (
-    <article className={`rounded-3xl border bg-gradient-to-br p-5 shadow-sm ${toneClasses[tone]}`}>
+    <article className="border border-gray-200 bg-white p-5">
       <p className="text-sm font-medium text-gray-600">{label}</p>
-      <p className="mt-3 text-3xl font-semibold tracking-tight text-gray-950">{value}</p>
-      <p className="mt-2 text-sm leading-6 text-gray-600">{detail}</p>
+      <p className="mt-2 text-2xl font-semibold tracking-tight text-gray-950">{value}</p>
     </article>
   );
 }
