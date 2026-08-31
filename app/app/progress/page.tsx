@@ -7,9 +7,6 @@ import { prisma } from "@/lib/db";
 import { summarizeReasoningRuns } from "@/lib/reasoningEngine/analytics";
 import { humanizeMisconceptionCategory } from "@/lib/reasoningEngine/contracts";
 import { formatStudentState } from "@/lib/reasoningEngine/studentState";
-import { buildHumanCenteredRecommendation } from "@/lib/workspaceConstitution";
-import { getLatestPersistedWorkspaceContext } from "@/lib/workspaceContextPersistence";
-import type { WorkspaceContext } from "@/lib/workspaceContext";
 
 type RecentRunRow = {
   id: string;
@@ -199,9 +196,8 @@ export default async function ProgressPage() {
 
   const studentState = studentStateUnavailable ? null : formatStudentState(userRecord.studentState ?? null);
   const analytics = reasoningRunsUnavailable ? null : summarizeReasoningRuns(recentRuns);
-  const persistedWorkspaceContext = (await getLatestPersistedWorkspaceContext(userRecord.id)).context;
   const xpToday = getXpToday(userRecord.xpToday, userRecord.xpTodayDate);
-  const recommendedTopics = buildRecommendedTopics(studentState, analytics, decks, persistedWorkspaceContext).slice(0, 3);
+  const recommendedTopics = buildRecommendedTopics(studentState, analytics, decks).slice(0, 3);
   const nextTopic = recommendedTopics.find((topic) => topic.href) || null;
 
   return (
@@ -326,13 +322,12 @@ function clampUnit(value: number): number {
 function buildRecommendedTopics(
   studentState: ReturnType<typeof formatStudentState> | null,
   analytics: ReturnType<typeof summarizeReasoningRuns> | null,
-  decks: Array<{ id: string; title: string; cards: Array<{ question: string; answer: string }> }>,
-  workspaceContext: WorkspaceContext | null
+  decks: Array<{ id: string; title: string; cards: Array<{ question: string; answer: string }> }>
 ) {
   const topics = (studentState?.weakConcepts || []).slice(0, 3).map((concept) => ({
     title: titleCase(concept),
     badge: "Weak topic",
-    reason: buildHumanCenteredRecommendation("This concept has appeared in your recent weak-topic memory, so it is a good candidate for targeted review and short verification cycles."),
+    reason: "Review this topic.",
     recommendationKey: concept,
     actionLabel: "Resume this concept",
   }));
@@ -342,7 +337,7 @@ function buildRecommendedTopics(
     topics.push({
       title: humanizeMisconceptionCategory(misconception.category),
       badge: "Recovery focus",
-      reason: buildHumanCenteredRecommendation("This misconception pattern has appeared most often in recent study history, so extra worked examples and slower step-by-step tutoring are likely to help."),
+      reason: "Continue this review.",
       recommendationKey: misconception.category,
       actionLabel: "Continue recovery",
     });
@@ -353,25 +348,9 @@ function buildRecommendedTopics(
     topics.push({
       title: "Recent difficult prompt",
       badge: "Revisit",
-      reason: buildHumanCenteredRecommendation(trimText(recentFailure, 132)),
+      reason: trimText(recentFailure, 132),
       recommendationKey: recentFailure,
       actionLabel: "Revisit this prompt",
-    });
-  }
-
-  const activeWorkspaceKey = workspaceContext?.activeStudySet?.focusConcept
-    || workspaceContext?.whiteboardReference?.workspaceGoal
-    || workspaceContext?.presentationReference?.objective
-    || workspaceContext?.presentationReference?.title
-    || null;
-
-  if (activeWorkspaceKey) {
-    topics.unshift({
-      title: "Active workspace thread",
-      badge: "Workspace carry-over",
-      reason: buildWorkspaceRecommendationReason(workspaceContext),
-      recommendationKey: activeWorkspaceKey,
-      actionLabel: "Resume this thread",
     });
   }
 
@@ -400,52 +379,6 @@ function buildMisconceptionCards(
   }));
 
   return dedupeByTitle([...fromAnalytics, ...fromState]).slice(0, 4);
-}
-
-function buildTutorBrief(
-  studentState: ReturnType<typeof formatStudentState> | null,
-  analytics: ReturnType<typeof summarizeReasoningRuns> | null,
-  recoverySummary: string | null,
-  workspaceContext: WorkspaceContext | null
-) {
-  const weakConcept = studentState?.weakConcepts[0];
-  const misconception = analytics?.byMisconception[0]?.category || studentState?.misconceptionPatterns[0] || null;
-  const lowConfidenceStreak = studentState?.pacingProfile.lowConfidenceStreak ?? 0;
-  const recentWin = studentState?.recentSuccesses[0] || null;
-  const preferredStyle = studentState?.preferredExplanationStyle || null;
-
-  const headline = weakConcept
-    ? `Let's reinforce ${titleCase(weakConcept)} before you move on.`
-    : recentWin
-      ? "You are building real recovery momentum."
-      : "Your tutor is watching for the next concept to stabilize.";
-
-  const body = recoverySummary
-    ? `${recoverySummary} ${weakConcept ? `Right now the biggest leverage point is ${titleCase(weakConcept)}, because it is still showing up in your recent learning memory.` : "The next step is to keep your study sessions short, targeted, and consistent so the system can refine what works best for you."}`
-    : weakConcept
-      ? `You have recent signals around ${titleCase(weakConcept)}, so the best session today is a short targeted review with quick checks rather than broad deck browsing.`
-      : "The tutor does not yet have enough recovery evidence to make a strong intervention call, so the next best move is another focused study session with answer-first coaching.";
-
-  const cues = [
-    workspaceContext?.whiteboardReference?.boardName
-      ? `Current workspace anchor: ${workspaceContext.whiteboardReference.boardName}${workspaceContext.whiteboardReference.workspaceGoal ? ` is tracking ${workspaceContext.whiteboardReference.workspaceGoal}.` : "."}`
-      : workspaceContext?.presentationReference?.title
-        ? `Current workspace anchor: presentation draft ${workspaceContext.presentationReference.title} is still active in your study workspace.`
-        : "No active workspace artifact is currently dominating your study context.",
-    misconception
-      ? `Most common recent difficulty: ${humanizeMisconceptionCategory(misconception)}.`
-      : "No dominant misconception has taken over your recent study history yet.",
-    lowConfidenceStreak > 0
-      ? `You are on a ${lowConfidenceStreak}-session low-confidence streak, so slower step-by-step support is likely to help.`
-      : "Confidence has not shown a prolonged dip recently, so you can keep pushing with normal pacing.",
-    preferredStyle
-      ? `The tutor is currently leaning toward ${preferredStyle.toLowerCase()} explanations because that style has matched your recent behavior best.`
-      : recentWin
-        ? `Recent recovery win: ${trimText(recentWin, 92)}`
-        : "As you complete more coached sessions, the tutor will personalize explanation style more aggressively.",
-  ];
-
-  return { headline, body, cues };
 }
 
 function buildProgressNarrative(
@@ -669,22 +602,3 @@ function rankConceptMatch(value: string, query: string): number {
   return score;
 }
 
-function buildWorkspaceRecommendationReason(workspaceContext: WorkspaceContext | null) {
-  if (!workspaceContext) {
-    return buildHumanCenteredRecommendation("Your current workspace thread is active, so the next study pass should pick up the same concept instead of starting a different topic.");
-  }
-
-  if (workspaceContext.activeStudySet?.focusConcept) {
-    return buildHumanCenteredRecommendation(`Your active guided session is already centered on ${titleCase(workspaceContext.activeStudySet.focusConcept)}, so the next recommendation should preserve that thread instead of resetting context.`);
-  }
-
-  if (workspaceContext.whiteboardReference?.workspaceGoal) {
-    return buildHumanCenteredRecommendation(`Your whiteboard is currently organized around ${workspaceContext.whiteboardReference.workspaceGoal}, so the next study pass should reconnect to that workspace goal while it is still active.`);
-  }
-
-  if (workspaceContext.presentationReference?.objective) {
-    return buildHumanCenteredRecommendation(`Your presentation draft is targeting ${workspaceContext.presentationReference.objective}, so the next recommendation should reinforce that same explanatory thread.`);
-  }
-
-  return buildHumanCenteredRecommendation("Your workspace still has an active thread, so the next recommendation should preserve it instead of widening focus.");
-}

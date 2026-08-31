@@ -168,7 +168,6 @@ export default async function AppPage({
         <h1 className="text-2xl font-semibold tracking-tight text-slate-950">Study</h1>
         <div className="flex flex-wrap gap-3">
           <Link href="/app/progress" className="text-sm font-medium text-slate-700 underline underline-offset-4">Progress</Link>
-          <Link href="/app/workspace" className="text-sm font-medium text-slate-700 underline underline-offset-4">Workspace</Link>
         </div>
       </section>
 

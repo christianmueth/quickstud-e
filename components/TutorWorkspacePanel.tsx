@@ -6,7 +6,6 @@ import { toast } from "sonner";
 import BillingActionButton from "@/components/BillingActionButton";
 import PremiumUpsellModal from "@/components/PremiumUpsellModal";
 import { getUpgradePrompt, type PremiumApiResponse, type UpgradePrompt } from "@/lib/clientBilling";
-import { readWorkspaceContext, updateWorkspaceContext } from "@/lib/workspaceContext";
 
 type TutorChatMessage = {
   id: string;
@@ -189,23 +188,6 @@ export default function TutorWorkspacePanel({ isPaid, planLabel, initialMode, pe
     viewport.scrollTop = viewport.scrollHeight;
   }, [messages]);
 
-  useEffect(() => {
-    if (!messages.length && !context) return;
-    updateWorkspaceContext((current) => ({
-      ...current,
-      weakConcepts: context?.weakConcepts?.length ? context.weakConcepts.slice(0, 8) : current.weakConcepts,
-      tutorMemory: {
-        explanationStyle: context?.explanationStyle || current.tutorMemory?.explanationStyle || null,
-        recentGuidance: context?.recentGuidance?.length ? context.recentGuidance.slice(0, 4) : current.tutorMemory?.recentGuidance || [],
-      },
-      recentTutorInteractions: messages.slice(-6).map((message) => ({
-        role: message.role,
-        content: message.content,
-        createdAt: message.createdAt,
-      })),
-    }));
-  }, [context, messages]);
-
   async function submitMessage(prefill?: string) {
     const content = (prefill ?? draft).trim();
     if (!content || sending || !isPaid) return;
@@ -231,7 +213,6 @@ export default function TutorWorkspacePanel({ isPaid, planLabel, initialMode, pe
           path: `/app?tab=tutor&mode=${mode}`,
           focusConcept: context?.weakConcepts?.[0] || null,
           focusReason: activeMode.focusReason,
-          workspaceContext: readWorkspaceContext(),
         }),
       });
       const data = (await safeJson(res)) as (TutorChatResponse & PremiumApiResponse) | null;

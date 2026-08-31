@@ -13,7 +13,6 @@ import {
   type TutorChatSessionContext,
 } from "@/lib/tutorChatSessionContext";
 import { readTutorChatEnabled, setTutorChatEnabled, TUTOR_CHAT_ENABLED_EVENT } from "@/lib/tutorChatPreferences";
-import { readWorkspaceContext, updateWorkspaceContext } from "@/lib/workspaceContext";
 
 type TutorChatMessage = {
   id: string;
@@ -63,15 +62,12 @@ export default function TutorChatPanel() {
   const isDeckStudyRoute = Boolean(deckId);
   const focusConcept = searchParams.get("concept");
   const focusReason = searchParams.get("reason");
-  const workspaceMode = searchParams.get("workspaceMode");
-  const starterPrompt = searchParams.get("starterPrompt");
   const routeKey = `${pathname || ""}?${searchParams.toString()}`;
   const hasFreshSessionContext = isTutorChatSessionContextFresh(sessionContext);
   const activeSessionContext =
     isDeckStudyRoute && hasFreshSessionContext && sessionContext?.deckId === deckId && !sessionContext.sessionComplete
       ? sessionContext
       : null;
-  const lastStarterPromptRef = useRef<string | null>(null);
 
   useEffect(() => {
     const stored = window.localStorage.getItem(OPEN_STORAGE_KEY);
@@ -176,51 +172,6 @@ export default function TutorChatPanel() {
     viewport.scrollTop = viewport.scrollHeight;
   }, [messages, open]);
 
-  useEffect(() => {
-    updateWorkspaceContext((currentWorkspaceContext) => ({
-      ...currentWorkspaceContext,
-      weakConcepts: context?.weakConcepts?.length ? context.weakConcepts.slice(0, 8) : currentWorkspaceContext.weakConcepts,
-      tutorMemory: {
-        explanationStyle: context?.explanationStyle || currentWorkspaceContext.tutorMemory?.explanationStyle || null,
-        recentGuidance: context?.recentGuidance?.length ? context.recentGuidance.slice(0, 4) : currentWorkspaceContext.tutorMemory?.recentGuidance || [],
-      },
-      recentTutorInteractions: messages.slice(-6).map((message) => ({
-        role: message.role,
-        content: message.content,
-        createdAt: message.createdAt,
-      })),
-      currentGuidedSession: activeSessionContext
-        ? {
-            answerDraft: activeSessionContext.answerDraft,
-            latestHint: activeSessionContext.latestCoaching?.hint || null,
-            latestRationale: activeSessionContext.latestCoaching?.rationale || null,
-            confidence: activeSessionContext.latestCoaching?.confidence || null,
-            strategyType: activeSessionContext.latestCoaching?.strategyType || null,
-            worldModelExplanation: activeSessionContext.latestCoaching?.worldModelExplanation || null,
-            projectedConfidenceDelta: activeSessionContext.latestCoaching?.projectedConfidenceDelta || null,
-            projectedRecoveryProbability: activeSessionContext.latestCoaching?.projectedRecoveryProbability || null,
-            projectedStabilityGain: activeSessionContext.latestCoaching?.projectedStabilityGain || null,
-          }
-        : currentWorkspaceContext.currentGuidedSession,
-    }));
-  }, [activeSessionContext, context, messages]);
-
-  useEffect(() => {
-    if (!isWorkspaceRoute) return;
-
-    const nextStarter = starterPrompt?.trim() || null;
-    if (!nextStarter) {
-      lastStarterPromptRef.current = null;
-      return;
-    }
-
-    if (lastStarterPromptRef.current === routeKey) return;
-
-    setOpen(true);
-    setDraft((current) => current.trim() ? current : nextStarter);
-    lastStarterPromptRef.current = routeKey;
-  }, [isWorkspaceRoute, routeKey, starterPrompt]);
-
   if (!isWorkspaceRoute || !enabled) return null;
 
   const promptSuggestions = buildPromptSuggestions(context, pathname);
@@ -252,7 +203,6 @@ export default function TutorChatPanel() {
           focusConcept,
           focusReason,
           liveContext: activeSessionContext,
-          workspaceContext: readWorkspaceContext(),
         }),
       });
       const data = (await safeJson(res)) as (TutorChatResponse & PremiumApiResponse) | null;
@@ -297,11 +247,6 @@ export default function TutorChatPanel() {
         {open ? (
           <div className="space-y-4 p-4">
             <div className="flex flex-wrap gap-2 text-[11px] text-slate-600">
-              {workspaceMode === "instructional-chat" ? (
-                <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-amber-800">
-                  instructional chat
-                </span>
-              ) : null}
               {context?.weakConcepts?.slice(0, 2).map((concept) => (
                 <span key={concept} className="rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1">
                   weak area: {concept}
