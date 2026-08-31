@@ -47,7 +47,10 @@ export default function DeleteStudyNoteButton({ noteId, removeAll = false }: Del
       type="button"
       onClick={confirmRemoval}
       disabled={busy}
-      className="rounded border border-red-200 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-60"
+      className={removeAll
+        ? "rounded bg-gray-600 px-4 py-2 text-white transition-colors hover:bg-gray-700 disabled:opacity-50"
+        : "rounded border border-red-200 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-60"
+      }
     >
       {busy ? "Removing..." : label}
     </button>
