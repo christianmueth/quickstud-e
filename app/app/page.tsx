@@ -11,6 +11,7 @@ import { formatPlanLabel, getBillingSnapshot } from "@/lib/billing";
 import CreateForm from "@/components/CreateForm";
 import DeckCarousel from "@/components/DeckCarousel";
 import DeleteAllDecksButton from "@/components/DeleteAllDecksButton";
+import DeleteStudyNoteButton from "@/components/DeleteStudyNoteButton";
 import TutorWorkspacePanel from "@/components/TutorWorkspacePanel";
 
 type TutorMode = "study-plan" | "explanation" | "quiz-me";
@@ -239,8 +240,9 @@ export default async function AppPage({
         />
       ) : activeTab === "notes" ? (
         <section className="max-w-2xl space-y-4">
-          <div>
+          <div className="flex items-center justify-between gap-3">
             <h2 className="text-xl font-semibold">Study notes</h2>
+            {studyNotes.length > 0 ? <DeleteStudyNoteButton removeAll /> : null}
           </div>
           {studyNotes.length === 0 ? (
             <div className="rounded border p-6 text-sm text-gray-500">No study notes yet.</div>

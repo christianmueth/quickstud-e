@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/db";
+import DeleteStudyNoteButton from "@/components/DeleteStudyNoteButton";
 
 // Simple markdown to HTML converter for basic formatting
 function markdownToHtml(markdown: string): string {
@@ -62,9 +63,10 @@ export default async function StudyNotesViewPage({
           <h1 className="text-3xl font-bold">{note.title}</h1>
           {note.source ? <p className="text-sm text-gray-500 mt-1">{note.source}</p> : null}
         </div>
-        <Link href="/app?tab=notes" className="px-4 py-2 border rounded hover:bg-gray-50">
-          Back
-        </Link>
+        <div className="flex items-center gap-2">
+          <DeleteStudyNoteButton noteId={id} />
+          <Link href="/app?tab=notes" className="px-4 py-2 border rounded hover:bg-gray-50">Back</Link>
+        </div>
       </div>
 
       <div className="prose prose-sm max-w-none border rounded-lg p-6 bg-white">

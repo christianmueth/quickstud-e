@@ -49,8 +49,6 @@ type TutorWorkspacePanelProps = {
 };
 
 type TutorMode = "study-plan" | "explanation" | "quiz-me";
-type ConversationFilter = "all" | "assistant" | "user";
-
 const TUTOR_MODES: Array<{
   key: TutorMode;
   label: string;
@@ -92,7 +90,6 @@ export default function TutorWorkspacePanel({ isPaid, planLabel, initialMode, pe
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
   const [mode, setMode] = useState<TutorMode>(initialMode);
-  const [conversationFilter, setConversationFilter] = useState<ConversationFilter>("all");
   const [draft, setDraft] = useState("");
   const [messages, setMessages] = useState<TutorChatMessage[]>([]);
   const [context, setContext] = useState<TutorChatContext | null>(null);
@@ -122,11 +119,6 @@ export default function TutorWorkspacePanel({ isPaid, planLabel, initialMode, pe
 
     return Array.from(new Set([...modePrompts[mode], ...performanceSummary.prompts].filter(Boolean)));
   }, [context?.weakConcepts, mode, performanceSummary.prompts]);
-  const visibleMessages = useMemo(() => {
-    if (conversationFilter === "all") return messages;
-    return messages.filter((message) => message.role === conversationFilter);
-  }, [conversationFilter, messages]);
-
   useEffect(() => {
     setMode(initialMode);
   }, [initialMode]);
@@ -237,75 +229,13 @@ export default function TutorWorkspacePanel({ isPaid, planLabel, initialMode, pe
 
   return (
     <>
-      <div className="grid gap-6 xl:grid-cols-[0.88fr_1.12fr]">
-        <section className="space-y-4">
-          <div className="rounded-3xl border border-sky-200 bg-gradient-to-br from-sky-50 via-white to-cyan-50 p-6 shadow-sm">
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-700">AI tutor read</p>
-            <h2 className="mt-3 text-2xl font-semibold tracking-tight text-slate-950">{performanceSummary.headline}</h2>
-            <div className="mt-5 grid gap-3 md:grid-cols-3 xl:grid-cols-1">
-              {performanceSummary.cues.map((cue) => (
-                <div key={cue} className="rounded-2xl border border-sky-100 bg-white/90 p-4 text-sm leading-6 text-slate-700">
-                  {cue}
-                </div>
-              ))}
-            </div>
+      <section className="mx-auto max-w-3xl space-y-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-xl font-semibold text-slate-950">Tutor</h2>
+            <p className="mt-1 text-sm text-slate-600">{performanceSummary.headline}</p>
           </div>
-
-          <div className="rounded-3xl border border-emerald-200 bg-gradient-to-br from-emerald-50 via-white to-lime-50 p-6 shadow-sm">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">Performance context</p>
-                <h3 className="mt-3 text-xl font-semibold tracking-tight text-slate-950">Recent performance</h3>
-              </div>
-              <div className="rounded-full border border-emerald-200 bg-white px-3 py-1 text-xs font-medium text-emerald-800">
-                {performanceSummary.recentRunCount} recent tutor signals
-              </div>
-            </div>
-            <div className="mt-5 space-y-3">
-              {performanceSummary.memoryMoments.map((moment) => (
-                <div key={moment} className="rounded-2xl border border-emerald-100 bg-white/90 p-4 text-sm leading-6 text-slate-700">
-                  {moment}
-                </div>
-              ))}
-            </div>
-            <div className="mt-5 grid gap-3 md:grid-cols-2">
-              <div className="rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-700">
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Study sets ready</p>
-                <p className="mt-2 text-2xl font-semibold text-slate-950">{performanceSummary.deckCount}</p>
-              </div>
-              <div className="rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-700">
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Current access</p>
-                <p className="mt-2 text-2xl font-semibold text-slate-950">{planLabel}</p>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">AI tutor chat</p>
-              <h2 className="mt-3 text-2xl font-semibold tracking-tight text-slate-950">Ask for coaching based on your performance patterns.</h2>
-            </div>
-            {isPaid ? (
-              <div className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-800">
-                Premium unlocked
-              </div>
-            ) : (
-              <div className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-medium text-amber-800">
-                Upgrade required
-              </div>
-            )}
-          </div>
-
-          <div className="mt-6 rounded-3xl border border-slate-200 bg-slate-50 p-4">
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Tutor mode</p>
-                <h3 className="mt-2 text-lg font-semibold text-slate-950">{activeMode.title}</h3>
-                <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-700">{activeMode.description}</p>
-              </div>
-              <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2">
                 {TUTOR_MODES.map((item) => (
                   <button
                     key={item.key}
@@ -319,14 +249,13 @@ export default function TutorWorkspacePanel({ isPaid, planLabel, initialMode, pe
                     {item.label}
                   </button>
                 ))}
-              </div>
-            </div>
           </div>
+        </div>
 
-          {!isPaid ? (
-            <div className="mt-6 rounded-3xl border border-amber-200 bg-gradient-to-br from-amber-50 via-white to-orange-50 p-6">
-              <p className="text-sm leading-7 text-slate-700">Tutor chat is a Premium feature.</p>
-              <div className="mt-5 flex flex-wrap gap-3">
+        {!isPaid ? (
+          <div className="border-t border-slate-200 pt-5">
+            <p className="text-sm text-slate-700">Tutor chat is available with Premium.</p>
+            <div className="mt-3">
                 <BillingActionButton
                   action="checkout"
                   plan="premium"
@@ -335,62 +264,15 @@ export default function TutorWorkspacePanel({ isPaid, planLabel, initialMode, pe
                 >
                   Upgrade to Premium
                 </BillingActionButton>
-              </div>
-              <div className="mt-6 grid gap-3 md:grid-cols-2">
-                {promptSuggestions.map((prompt) => (
-                  <div key={prompt} className="rounded-2xl border border-white/80 bg-white/90 p-4 text-sm leading-6 text-slate-700">
-                    {prompt}
-                  </div>
-                ))}
-              </div>
             </div>
-          ) : (
-            <>
-              <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setConversationFilter("all")}
-                    className={conversationFilter === "all"
-                      ? "rounded-full bg-slate-950 px-3 py-1.5 text-xs font-medium text-white"
-                      : "rounded-full border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                    }
-                  >
-                    All messages
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setConversationFilter("assistant")}
-                    className={conversationFilter === "assistant"
-                      ? "rounded-full bg-slate-950 px-3 py-1.5 text-xs font-medium text-white"
-                      : "rounded-full border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                    }
-                  >
-                    Tutor only
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setConversationFilter("user")}
-                    className={conversationFilter === "user"
-                      ? "rounded-full bg-slate-950 px-3 py-1.5 text-xs font-medium text-white"
-                      : "rounded-full border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                    }
-                  >
-                    My prompts only
-                  </button>
-                </div>
-                <div className="rounded-full border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-medium text-sky-800">
-                  Mode: {activeMode.label}
-                </div>
-              </div>
-
-              <div ref={messageViewportRef} className="mt-6 max-h-[28rem] space-y-3 overflow-y-auto pr-1">
+          </div>
+        ) : (
+          <>
+              <div ref={messageViewportRef} className="max-h-[28rem] space-y-3 overflow-y-auto border-y border-slate-200 py-5">
                 {bootstrapping || loading ? (
-                  <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
-                    Restoring tutor continuity...
-                  </div>
-                ) : visibleMessages.length ? (
-                  visibleMessages.map((message) => (
+                  <p className="text-sm text-slate-600">Loading conversation...</p>
+                ) : messages.length ? (
+                  messages.map((message) => (
                     <div
                       key={message.id}
                       className={message.role === "assistant"
@@ -405,18 +287,12 @@ export default function TutorWorkspacePanel({ isPaid, planLabel, initialMode, pe
                     </div>
                   ))
                 ) : (
-                  <div className="space-y-3 rounded-2xl border border-sky-100 bg-sky-50 px-4 py-4 text-sm leading-6 text-slate-700">
-                    <p className="font-medium text-slate-900">
-                      {messages.length
-                        ? "No messages match the current filter yet. Switch filters or ask the tutor in the active mode."
-                        : "Start with one of the suggested prompts below, or ask directly about your weak areas and next study step."}
-                    </p>
-                  </div>
+                  <p className="text-sm text-slate-600">Choose a prompt or ask a question to begin.</p>
                 )}
               </div>
 
-              <div className="mt-5 flex flex-wrap gap-2">
-                {promptSuggestions.map((suggestion) => (
+              <div className="flex flex-wrap gap-2">
+                {promptSuggestions.slice(0, 2).map((suggestion) => (
                   <button
                     key={suggestion}
                     type="button"
@@ -427,15 +303,10 @@ export default function TutorWorkspacePanel({ isPaid, planLabel, initialMode, pe
                     {suggestion}
                   </button>
                 ))}
-                {context?.explanationStyle ? (
-                  <div className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs text-emerald-800">
-                    Best-fit explanation style: {context.explanationStyle}
-                  </div>
-                ) : null}
               </div>
 
               <form
-                className="mt-5 space-y-3"
+                className="space-y-3"
                 onSubmit={(event) => {
                   event.preventDefault();
                   void submitMessage();
@@ -457,10 +328,9 @@ export default function TutorWorkspacePanel({ isPaid, planLabel, initialMode, pe
                   </button>
                 </div>
               </form>
-            </>
-          )}
-        </section>
-      </div>
+          </>
+        )}
+      </section>
 
       <PremiumUpsellModal
         open={Boolean(upgradePrompt)}
