@@ -23,7 +23,7 @@ export default async function AppPage({
   let userId: string | null = null;
   let billingSnapshot: Awaited<ReturnType<typeof getBillingSnapshot>> | null = null;
   const resolvedSearchParams = await searchParams;
-  const activeTab = resolvedSearchParams.tab === "tutor" ? "tutor" : "flashcards";
+  const activeTab = resolvedSearchParams.tab === "tutor" ? "tutor" : resolvedSearchParams.tab === "notes" ? "notes" : "flashcards";
   const activeTutorMode = normalizeTutorMode(resolvedSearchParams.mode);
   
   try {
@@ -52,6 +52,7 @@ export default async function AppPage({
   }
 
   let decks: Array<{ id: string; title: string; createdAt: Date; _count: { cards: number } } > = [];
+  let studyNotes: Array<{ id: string; title: string; source: string | null; createdAt: Date }> = [];
   let studentState: ReturnType<typeof formatStudentState> | null = null;
   let recentRuns: Array<{
     id: string;
@@ -142,12 +143,28 @@ export default async function AppPage({
 
   try {
     decks = await prisma.deck.findMany({
-      where: { user: { clerkUserId: userId } },
+      where: {
+        user: { clerkUserId: userId },
+        cards: { none: { question: "__STUDY_NOTE__" } },
+      },
       orderBy: { createdAt: "desc" },
       select: { id: true, title: true, createdAt: true, _count: { select: { cards: true } } },
     });
   } catch (error) {
     console.error("[App] Error fetching decks:", error);
+  }
+
+  try {
+    studyNotes = await prisma.deck.findMany({
+      where: {
+        user: { clerkUserId: userId },
+        cards: { some: { question: "__STUDY_NOTE__" } },
+      },
+      orderBy: { createdAt: "desc" },
+      select: { id: true, title: true, source: true, createdAt: true },
+    });
+  } catch (error) {
+    console.error("[App] Error fetching study notes:", error);
   }
 
   const analytics = recentRuns.length ? summarizeReasoningRuns(recentRuns) : null;
@@ -193,6 +210,15 @@ export default async function AppPage({
           >
             Tutor
           </Link>
+          <Link
+            href="/app?tab=notes"
+            className={activeTab === "notes"
+              ? "rounded-full bg-slate-950 px-4 py-2 text-sm font-medium text-white"
+              : "rounded-full border border-slate-300 px-4 py-2 text-sm font-medium text-slate-900 hover:bg-slate-50"
+            }
+          >
+            Notes
+          </Link>
         </div>
       </section>
 
@@ -211,6 +237,33 @@ export default async function AppPage({
             recentRunCount: recentRuns.length,
           }}
         />
+      ) : activeTab === "notes" ? (
+        <section className="max-w-2xl space-y-4">
+          <div>
+            <h2 className="text-xl font-semibold">Study notes</h2>
+          </div>
+          {studyNotes.length === 0 ? (
+            <div className="rounded border p-6 text-sm text-gray-500">No study notes yet.</div>
+          ) : (
+            <ul className="divide-y rounded border">
+              {studyNotes.map((note) => (
+                <li key={note.id} className="flex items-center justify-between gap-3 p-4">
+                  <div className="min-w-0">
+                    <Link href={`/app/study-notes/view?id=${note.id}`} className="block truncate font-medium hover:underline">
+                      {note.title}
+                    </Link>
+                    <p className="text-xs text-gray-500">
+                      {new Date(note.createdAt).toLocaleString()}{note.source ? ` • ${note.source}` : ""}
+                    </p>
+                  </div>
+                  <Link href={`/app/study-notes/view?id=${note.id}`} className="whitespace-nowrap rounded border px-3 py-1.5 text-sm hover:bg-gray-50">
+                    Open
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           <section className="space-y-4">

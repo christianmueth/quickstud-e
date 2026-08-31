@@ -6,7 +6,10 @@ export default async function DeckCarousel({ userId }: { userId: string }) {
 
   try {
     const decks = await prisma.deck.findMany({
-      where: { user: { clerkUserId: userId } },
+      where: {
+        user: { clerkUserId: userId },
+        cards: { none: { question: "__STUDY_NOTE__" } },
+      },
       orderBy: { updatedAt: "desc" },
       take: 12,
       select: { id: true, title: true, _count: { select: { cards: true } } },

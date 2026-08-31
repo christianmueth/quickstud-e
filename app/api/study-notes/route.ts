@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { buildFreePlanLimitMessage, getGenerationAccess, incrementGenerationUsage } from "@/lib/billing";
 import { callLLMResult } from "@/lib/aiClient";
+import { prisma } from "@/lib/db";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -259,13 +260,26 @@ export async function POST(req: Request) {
       );
     }
 
+    const studyNote = await prisma.deck.create({
+      data: {
+        userId: access.snapshot.user.id,
+        title,
+        source,
+        cards: {
+          create: {
+            question: "__STUDY_NOTE__",
+            answer: notes,
+          },
+        },
+      },
+      select: { id: true },
+    });
+
     await incrementGenerationUsage(access.snapshot.user.id);
 
     return NextResponse.json({
       success: true,
-      notes,
-      title,
-      source
+      noteId: studyNote.id,
     });
 
   } catch (error: any) {

@@ -1,7 +1,7 @@
-"use client";
-
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { redirect } from "next/navigation";
+import { auth } from "@clerk/nextjs/server";
+import { prisma } from "@/lib/db";
 
 // Simple markdown to HTML converter for basic formatting
 function markdownToHtml(markdown: string): string {
@@ -28,84 +28,49 @@ function markdownToHtml(markdown: string): string {
   return html;
 }
 
-export default function StudyNotesViewPage() {
-  const router = useRouter();
-  const [notes, setNotes] = useState<string>("");
-  const [title, setTitle] = useState<string>("");
-  const [source, setSource] = useState<string>("");
-  const [loading, setLoading] = useState(true);
+export default async function StudyNotesViewPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ id?: string }>;
+}) {
+  const { userId } = await auth();
+  const { id } = await searchParams;
 
-  useEffect(() => {
-    // Retrieve notes from sessionStorage
-    const storedData = sessionStorage.getItem("latestStudyNotes");
-    if (!storedData) {
-      router.push("/app");
-      return;
-    }
+  if (!userId) redirect(`/?next=${encodeURIComponent(`/app/study-notes/view?id=${id || ""}`)}`);
+  if (!id) redirect("/app?tab=notes");
 
-    try {
-      const data = JSON.parse(storedData);
-      setNotes(data.notes || "");
-      setTitle(data.title || "Study Notes");
-      setSource(data.source || "");
-    } catch (err) {
-      console.error("Failed to parse study notes:", err);
-      router.push("/app");
-    } finally {
-      setLoading(false);
-    }
-  }, [router]);
+  const note = await prisma.deck.findFirst({
+    where: { id, user: { clerkUserId: userId } },
+    select: {
+      title: true,
+      source: true,
+      cards: {
+        where: { question: "__STUDY_NOTE__" },
+        select: { answer: true },
+        take: 1,
+      },
+    },
+  });
 
-  if (loading) {
-    return (
-      <div className="max-w-4xl mx-auto p-6">
-        <div className="animate-pulse space-y-4">
-          <div className="h-8 bg-gray-200 rounded w-1/3"></div>
-          <div className="h-4 bg-gray-200 rounded w-full"></div>
-          <div className="h-4 bg-gray-200 rounded w-full"></div>
-          <div className="h-4 bg-gray-200 rounded w-2/3"></div>
-        </div>
-      </div>
-    );
-  }
+  const content = note?.cards[0]?.answer;
+  if (!note || !content) redirect("/app?tab=notes");
 
   return (
     <div className="max-w-4xl mx-auto p-6 space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold">{title}</h1>
-          {source ? <p className="text-sm text-gray-500 mt-1">{source}</p> : null}
+          <h1 className="text-3xl font-bold">{note.title}</h1>
+          {note.source ? <p className="text-sm text-gray-500 mt-1">{note.source}</p> : null}
         </div>
-        <button
-          onClick={() => router.push("/app")}
-          className="px-4 py-2 border rounded hover:bg-gray-50"
-        >
+        <Link href="/app?tab=notes" className="px-4 py-2 border rounded hover:bg-gray-50">
           Back
-        </button>
-      </div>
-
-      <div className="flex gap-2">
-        <button
-          onClick={() => {
-            navigator.clipboard.writeText(notes);
-            alert("Study notes copied to your clipboard.");
-          }}
-          className="px-4 py-2 border rounded hover:bg-gray-50"
-        >
-          Copy
-        </button>
-        <button
-          onClick={() => window.print()}
-          className="px-4 py-2 border rounded hover:bg-gray-50"
-        >
-          Print
-        </button>
+        </Link>
       </div>
 
       <div className="prose prose-sm max-w-none border rounded-lg p-6 bg-white">
         <div 
           className="markdown-content"
-          dangerouslySetInnerHTML={{ __html: markdownToHtml(notes) }}
+          dangerouslySetInnerHTML={{ __html: markdownToHtml(content) }}
         />
       </div>
     </div>

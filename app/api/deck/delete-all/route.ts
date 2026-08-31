@@ -13,7 +13,8 @@ export async function DELETE(req: Request) {
         deck: {
           user: {
             clerkUserId: userId
-          }
+          },
+          cards: { none: { question: "__STUDY_NOTE__" } },
         }
       }
     });
@@ -23,7 +24,8 @@ export async function DELETE(req: Request) {
       where: {
         user: {
           clerkUserId: userId
-        }
+        },
+        cards: { none: { question: "__STUDY_NOTE__" } },
       }
     });
 

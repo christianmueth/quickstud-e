@@ -249,13 +249,10 @@ export default function CreateForm({ billingSummary }: CreateFormProps) {
       }
 
       if (generationMode === "notes") {
-        // For study notes, show the result in a new window or redirect to a notes viewer
         const data = await res.json();
-        if (data.success && data.notes) {
-          // Store notes in sessionStorage and redirect to a viewer page
-          sessionStorage.setItem("latestStudyNotes", JSON.stringify(data));
+        if (data.success && data.noteId) {
           toast.success("Your study overview is ready.");
-          window.location.href = "/app/study-notes/view";
+          window.location.href = `/app/study-notes/view?id=${encodeURIComponent(data.noteId)}`;
         } else {
           throw new Error("We couldn't prepare the study overview.");
         }
