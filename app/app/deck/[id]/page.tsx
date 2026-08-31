@@ -35,7 +35,7 @@ export default async function DeckPage({
   if (!deck) return notFound();
 
   return (
-    <div className="max-w-3xl mx-auto p-6 space-y-8">
+    <div className="max-w-3xl mx-auto p-6 space-y-6">
       <div className="flex items-center justify-between gap-3">
         <DeckTitleInline deckId={deck.id} initial={deck.title} />
         <div className="flex items-center gap-2">
@@ -45,9 +45,8 @@ export default async function DeckPage({
         </div>
       </div>
 
-      <section className="space-y-3">
-        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Study</p>
-        <h2 className="text-lg font-semibold">Guided session</h2>
+      <section>
+        <h2 className="mb-3 text-lg font-semibold">Study</h2>
         <StudyCarousel
           deckId={deck.id}
           focusConcept={focusConcept}
@@ -57,8 +56,7 @@ export default async function DeckPage({
       </section>
 
       <section className="space-y-3">
-        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Library</p>
-        <h2 className="text-lg font-semibold">Add or refine study material</h2>
+        <h2 className="text-lg font-semibold">Cards</h2>
         <AddCardForm deckId={deck.id} />
         <DeckCardList cards={deck.cards} />
       </section>

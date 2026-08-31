@@ -222,21 +222,15 @@ export default async function ProgressPage() {
     : null;
 
   return (
-    <main className="mx-auto max-w-6xl space-y-8 px-6 py-8">
-      <section className="flex flex-col gap-4 rounded-3xl border border-gray-200 bg-gradient-to-r from-sky-50 via-white to-emerald-50 p-8 lg:flex-row lg:items-end lg:justify-between">
-        <div className="max-w-3xl space-y-3">
-          <p className="text-sm font-medium uppercase tracking-[0.18em] text-sky-700">Tutor progress read</p>
-          <h1 className="text-3xl font-semibold tracking-tight text-gray-950 sm:text-4xl">How your tutor reads your learning arc right now</h1>
-          <p className="text-base leading-7 text-gray-600">
-            This space should feel like your tutor interpreting the last few study sessions, not a dashboard reporting numbers. The goal is to show what is settling, what still needs reinforcement, and where the next guided pass should begin.
-          </p>
-        </div>
+    <main className="mx-auto max-w-6xl space-y-6 px-6 py-8">
+      <section className="flex flex-wrap items-center justify-between gap-4 border-b border-gray-200 pb-6">
+        <h1 className="text-3xl font-semibold tracking-tight text-gray-950">Progress</h1>
         <div className="flex flex-wrap gap-3">
-          <Link href="/app" className="rounded-full border border-gray-300 bg-white px-5 py-3 text-sm font-medium text-gray-900 hover:bg-gray-50">
-            Back to study workspace
+          <Link href="/app" className="text-sm font-medium text-gray-700 underline underline-offset-4">
+            Study
           </Link>
-          <Link href="/how-adaptive-guidance-works" className="rounded-full bg-gray-950 px-5 py-3 text-sm font-medium text-white hover:bg-gray-800">
-            Review adaptive guidance
+          <Link href="/how-adaptive-guidance-works" className="text-sm font-medium text-gray-700 underline underline-offset-4">
+            How it works
           </Link>
         </div>
       </section>
@@ -250,9 +244,7 @@ export default async function ProgressPage() {
 
       <section className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
         <div className="rounded-3xl border border-sky-200 bg-gradient-to-br from-sky-50 via-white to-cyan-50 p-6 shadow-sm">
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-700">Tutor read</p>
-          <h2 className="mt-3 text-2xl font-semibold tracking-tight text-gray-950">{tutorBrief.headline}</h2>
-          <p className="mt-3 text-sm leading-7 text-gray-700">{tutorBrief.body}</p>
+          <h2 className="text-2xl font-semibold tracking-tight text-gray-950">{tutorBrief.headline}</h2>
           <div className="mt-5 grid gap-3 md:grid-cols-3">
             {tutorBrief.cues.map((cue) => (
               <div key={cue} className="rounded-2xl border border-sky-100 bg-white/90 p-3 text-sm leading-6 text-gray-700">
@@ -263,20 +255,18 @@ export default async function ProgressPage() {
         </div>
 
         <div className="rounded-3xl border border-emerald-200 bg-gradient-to-br from-emerald-50 via-white to-lime-50 p-6 shadow-sm">
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">Learning narrative</p>
-          <h2 className="mt-3 text-2xl font-semibold tracking-tight text-gray-950">{progressNarrative.headline}</h2>
-          <p className="mt-3 text-sm leading-7 text-gray-700">{progressNarrative.summary}</p>
+          <h2 className="text-2xl font-semibold tracking-tight text-gray-950">{progressNarrative.headline}</h2>
           <div className="mt-5 space-y-3">
             <div className="rounded-2xl border border-emerald-100 bg-white/90 p-4 text-sm leading-6 text-gray-700">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-700">What changed</p>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-700">Changed</p>
               <p className="mt-2">{progressNarrative.whatChanged}</p>
             </div>
             <div className="rounded-2xl border border-amber-100 bg-white/90 p-4 text-sm leading-6 text-gray-700">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-amber-700">Still unstable</p>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-amber-700">Review</p>
               <p className="mt-2">{progressNarrative.stillUnstable}</p>
             </div>
             <div className="rounded-2xl border border-sky-100 bg-white/90 p-4 text-sm leading-6 text-gray-700">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-sky-700">Suggested next pass</p>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-sky-700">Next</p>
               <p className="mt-2">{progressNarrative.nextStep}</p>
               {progressResumeHref ? (
                 <div className="mt-4">

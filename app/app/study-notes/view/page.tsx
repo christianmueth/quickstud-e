@@ -71,21 +71,19 @@ export default function StudyNotesViewPage() {
 
   return (
     <div className="max-w-4xl mx-auto p-6 space-y-6">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold">{title}</h1>
-          <p className="text-sm text-gray-500 mt-1">Study source: {source}</p>
+          {source ? <p className="text-sm text-gray-500 mt-1">{source}</p> : null}
         </div>
         <button
           onClick={() => router.push("/app")}
           className="px-4 py-2 border rounded hover:bg-gray-50"
         >
-          ← Back to study workspace
+          Back
         </button>
       </div>
 
-      {/* Action buttons */}
       <div className="flex gap-2">
         <button
           onClick={() => {
@@ -94,17 +92,16 @@ export default function StudyNotesViewPage() {
           }}
           className="px-4 py-2 border rounded hover:bg-gray-50"
         >
-          📋 Copy study notes
+          Copy
         </button>
         <button
           onClick={() => window.print()}
           className="px-4 py-2 border rounded hover:bg-gray-50"
         >
-          🖨️ Print
+          Print
         </button>
       </div>
 
-      {/* Notes content */}
       <div className="prose prose-sm max-w-none border rounded-lg p-6 bg-white">
         <div 
           className="markdown-content"

@@ -163,50 +163,12 @@ export default async function AppPage({
   ];
 
   return (
-    <div className="max-w-6xl mx-auto p-6 space-y-8">
-      <section className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
-        <div className="rounded-3xl border border-sky-200 bg-gradient-to-br from-sky-50 via-white to-cyan-50 p-6 shadow-sm">
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-700">Tutor framing</p>
-          <h1 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950">{workspaceTutorBrief.headline}</h1>
-          <div className="mt-5 grid gap-3 md:grid-cols-3">
-            {workspaceTutorBrief.cues.map((cue) => (
-              <div key={cue} className="rounded-2xl border border-sky-100 bg-white/90 p-4 text-sm leading-6 text-slate-700">
-                {cue}
-              </div>
-            ))}
-          </div>
-          <div className="mt-5 flex flex-wrap gap-3">
-            <Link href="/app/progress" className="rounded-full bg-slate-950 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800">
-              Review my progress
-            </Link>
-            <Link href="/how-adaptive-guidance-works" className="rounded-full border border-slate-300 px-4 py-2 text-sm font-medium text-slate-900 hover:bg-white">
-              Why this guidance appears
-            </Link>
-          </div>
-        </div>
-
-        <div className="rounded-3xl border border-emerald-200 bg-gradient-to-br from-emerald-50 via-white to-lime-50 p-6 shadow-sm">
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">Performance context</p>
-          <h2 className="mt-3 text-2xl font-semibold tracking-tight text-slate-950">Recent signals</h2>
-          <div className="mt-5 space-y-3">
-            {memoryMoments.map((moment) => (
-              <div key={moment} className="rounded-2xl border border-emerald-100 bg-white/90 p-4 text-sm leading-6 text-slate-700">
-                {moment}
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section className="rounded-3xl border border-amber-200 bg-gradient-to-br from-amber-50 via-white to-orange-50 p-6 shadow-sm">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div className="max-w-3xl">
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-700">New workspace layer</p>
-            <h2 className="mt-3 text-2xl font-semibold tracking-tight text-slate-950">Workspace tools</h2>
-          </div>
-          <Link href="/app/workspace" className="inline-flex rounded-full bg-slate-950 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800">
-            Open workspace
-          </Link>
+    <div className="max-w-6xl mx-auto p-6 space-y-6">
+      <section className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 pb-6">
+        <h1 className="text-2xl font-semibold tracking-tight text-slate-950">Study</h1>
+        <div className="flex flex-wrap gap-3">
+          <Link href="/app/progress" className="text-sm font-medium text-slate-700 underline underline-offset-4">Progress</Link>
+          <Link href="/app/workspace" className="text-sm font-medium text-slate-700 underline underline-offset-4">Workspace</Link>
         </div>
       </section>
 
@@ -221,7 +183,7 @@ export default async function AppPage({
               : "rounded-full border border-slate-300 px-4 py-2 text-sm font-medium text-slate-900 hover:bg-slate-50"
             }
           >
-            Flashcards and study sets
+            Study sets
           </Link>
           <Link
             href={`/app?tab=tutor&mode=${activeTutorMode}`}
@@ -230,7 +192,7 @@ export default async function AppPage({
               : "rounded-full border border-slate-300 px-4 py-2 text-sm font-medium text-slate-900 hover:bg-slate-50"
             }
           >
-            AI tutor
+            Tutor
           </Link>
         </div>
       </section>
@@ -253,16 +215,14 @@ export default async function AppPage({
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           <section className="space-y-4">
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Study</p>
-            <h2 className="text-xl font-semibold">Build study material</h2>
-            <p className="text-sm text-gray-600">Turn text, files, or links into study material.</p>
+            <h2 className="text-xl font-semibold">Create</h2>
             {billingSnapshot ? (
               <div className="rounded-2xl border border-sky-200 bg-sky-50 p-4 text-sm text-slate-700">
                 <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                   <div>
-                    <p className="font-medium text-slate-950">Current plan: {currentPlanLabel}</p>
+                    <p className="font-medium text-slate-950">{currentPlanLabel}</p>
                     <p className="mt-1">
-                      AI generations this month: {billingSnapshot.monthlyGenerationCount}
+                      This month: {billingSnapshot.monthlyGenerationCount}
                       {billingSnapshot.monthlyGenerationLimit ? ` of ${billingSnapshot.monthlyGenerationLimit}` : " (unlimited)"}
                     </p>
                   </div>
@@ -273,7 +233,7 @@ export default async function AppPage({
                         className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-900 disabled:opacity-60"
                         pendingLabel="Opening portal..."
                       >
-                        Manage subscription
+                        Manage
                       </BillingActionButton>
                     ) : (
                       <BillingActionButton
@@ -282,7 +242,7 @@ export default async function AppPage({
                         className="rounded-full bg-slate-950 px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
                         pendingLabel="Opening checkout..."
                       >
-                        Upgrade to Premium
+                        Upgrade
                       </BillingActionButton>
                     )}
                   </div>
@@ -306,8 +266,7 @@ export default async function AppPage({
           <section className="space-y-4">
             <div className="flex justify-between items-center">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Study</p>
-                <h2 className="text-xl font-semibold">Study library</h2>
+                <h2 className="text-xl font-semibold">Library</h2>
               </div>
               {decks.length > 0 && (
                 <div>
@@ -316,7 +275,7 @@ export default async function AppPage({
               )}
             </div>
             {decks.length === 0 ? (
-              <div className="rounded border p-6 text-sm text-gray-500">No study sets yet. Build one on the left to start a guided session.</div>
+              <div className="rounded border p-6 text-sm text-gray-500">No study sets yet.</div>
             ) : (
               <ul className="divide-y rounded border">
                 {decks.map((d) => (
@@ -330,7 +289,7 @@ export default async function AppPage({
                       </p>
                     </div>
                     <Link href={`/app/deck/${d.id}`} className="text-sm px-3 py-1.5 rounded border hover:bg-gray-50 whitespace-nowrap">
-                      Open session
+                      Open
                     </Link>
                   </li>
                 ))}
