@@ -18,7 +18,7 @@ export default function AdaptiveGuidancePage() {
         </p>
         <div className="mt-6 flex flex-wrap gap-3">
           <Link
-            href="/?next=%2Fapp"
+            href="/app?tab=flashcards"
             className="rounded-full bg-slate-950 px-5 py-2.5 text-sm font-medium text-white hover:bg-slate-800"
           >
             Start guided study

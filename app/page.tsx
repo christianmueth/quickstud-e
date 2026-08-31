@@ -1,4 +1,5 @@
 // app/page.tsx
+import Image from "next/image";
 import Link from "next/link";
 import { SignInButton, SignUpButton, SignedIn, SignedOut } from "@clerk/nextjs";
 
@@ -14,7 +15,14 @@ export default async function Home({
     <main className="min-h-[calc(100vh-64px)] bg-[linear-gradient(180deg,_#fffdf8_0%,_#ffffff_50%,_#f8fbff_100%)] px-6 py-12 sm:py-20">
       <div className="mx-auto grid max-w-4xl gap-12">
         <section className="max-w-2xl space-y-6">
-          <p className="text-sm font-semibold uppercase tracking-[0.18em] text-amber-800">QuickStud-E</p>
+          <Image
+            src="/quickstud_e.png"
+            alt="QuickStud-E"
+            width={144}
+            height={144}
+            className="h-24 w-24 object-contain sm:h-28 sm:w-28"
+            priority
+          />
           <div className="space-y-3">
             <h1 className="text-4xl font-semibold tracking-tight text-slate-950 sm:text-5xl">Study clearly.</h1>
             <p className="text-base leading-7 text-slate-700 sm:text-lg">Create study material, review it, and get help when you need it.</p>
